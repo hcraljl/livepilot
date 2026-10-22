@@ -108,6 +108,7 @@ curl http://localhost:4000/api/replay
 - 智能档位 `aiLevel`：`off`（纯规则 + TF-IDF，零 LLM）/ `hybrid`（规则决策 + LLM 文案，默认）/ `full`（LLM 在候选内重排，非法输出回退规则）。
 - `backend/src/review/`：基于 `store.timeline` 的 3 分钟窗口归因 + 5 段复盘，`/api/replay` 自动接管。
 - `backend/src/experience/`：TF-IDF 复盘经验库，首次运行写入 5 条种子到 `backend/data/experiences.json`；知识库 SOP 用 `source: 'playbook'` 导入。
+- 经验库性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook。
 - 端到端自测：`npm run engine:demo -w backend`（跑 B 的真实模拟器，mock 掉 Polyv 调用，约 10 秒）。
 - 接真实 DeepSeek：`.env` 填 `DEEPSEEK_API_KEY`；不填时决策理由与复盘均走模板，动作链不受影响。
 

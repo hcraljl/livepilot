@@ -7,12 +7,19 @@ interface Vector {
 
 interface IndexedEntry {
   entry: ExperienceEntry;
+  /** 缓存词频，新增文档时只做权重刷新，不重新分词旧文档 */
+  frequencies: Map<string, number>;
   vector: Vector;
 }
 
 export interface TfidfIndex {
-  size: number;
+  readonly size: number;
   search(query: string, topK?: number): ExperienceMatch[];
+}
+
+export interface MutableTfidfIndex extends TfidfIndex {
+  /** 增量加入一条经验：只对新文档分词，旧文档只刷新权重 */
+  add(entry: ExperienceEntry): void;
 }
 
 function entryText(entry: ExperienceEntry): string {
@@ -81,41 +88,59 @@ function performanceScore(entry: ExperienceEntry, maxGmv: number): number {
 }
 
 /**
- * TF-IDF + 历史效果权重：
- * - 相似度负责“像不像当前场景”
- * - 历史增量与置信度负责“这条经验值不值得优先参考”
- * 最终优先级 = 相似度 * (0.7 + 0.3 * 效果分)，避免效果分压过场景匹配。
+ * TF-IDF + 历史效果权重（可变索引）：
+ * - 首次构建 / 加载后建一次，之后搜索复用；
+ * - 新增经验只对新文档分词，DF 更新后刷新旧文档的权重（不重新分词）；
+ * - IDF 本质上是全局统计，所以"完全零全局计算"做不到，但昂贵部分已经增量化了。
  */
-export function buildTfidfIndex(entries: ExperienceEntry[]): TfidfIndex {
-  const tokenized = entries.map((entry) =>
-    termFrequencies(tokenize(entryText(entry))),
-  );
+export function createTfidfIndex(
+  entries: ExperienceEntry[],
+): MutableTfidfIndex {
+  const docs: IndexedEntry[] = [];
   const documentFrequency = new Map<string, number>();
-  for (const frequencies of tokenized) {
+  let maxGmv = 0;
+
+  function addDocument(entry: ExperienceEntry, refresh: boolean): void {
+    const frequencies = termFrequencies(tokenize(entryText(entry)));
     for (const term of frequencies.keys()) {
       documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
     }
+    docs.push({ entry, frequencies, vector: { weights: new Map() } });
+    maxGmv = Math.max(
+      maxGmv,
+      Math.max(0, entry.result?.incrementalGmv ?? 0),
+    );
+    if (refresh) refreshVectors();
   }
 
-  const docs: IndexedEntry[] = entries.map((entry, index) => ({
-    entry,
-    vector: buildVector(tokenized[index], documentFrequency, entries.length),
-  }));
+  function refreshVectors(): void {
+    for (const doc of docs) {
+      doc.vector = buildVector(
+        doc.frequencies,
+        documentFrequency,
+        docs.length,
+      );
+    }
+  }
 
-  const maxGmv = entries.reduce(
-    (max, entry) =>
-      Math.max(max, Math.max(0, entry.result?.incrementalGmv ?? 0)),
-    0,
-  );
+  for (const entry of entries) addDocument(entry, false);
+  refreshVectors();
 
   return {
-    size: entries.length,
+    get size(): number {
+      return docs.length;
+    },
+
+    add(entry: ExperienceEntry): void {
+      addDocument(entry, true);
+    },
+
     search(query: string, topK = 3): ExperienceMatch[] {
-      if (entries.length === 0) return [];
+      if (docs.length === 0) return [];
       const queryVector = buildVector(
         termFrequencies(tokenize(query)),
         documentFrequency,
-        entries.length,
+        docs.length,
       );
       if (queryVector.weights.size === 0) return [];
 
@@ -139,4 +164,10 @@ export function buildTfidfIndex(entries: ExperienceEntry[]): TfidfIndex {
         .slice(0, Math.max(1, topK));
     },
   };
+}
+
+export function buildTfidfIndex(
+  entries: ExperienceEntry[],
+): MutableTfidfIndex {
+  return createTfidfIndex(entries);
 }

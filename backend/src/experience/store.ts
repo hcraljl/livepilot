@@ -7,7 +7,10 @@ import type {
   ReviewReport,
 } from '../../../shared/types.js';
 import type { EngineLogger } from '../engine/contracts.js';
-import { buildTfidfIndex } from './tfidf.js';
+import {
+  createTfidfIndex,
+  type MutableTfidfIndex,
+} from './tfidf.js';
 import { SEED_EXPERIENCES } from './seeds.js';
 
 const DEFAULT_FILE_PATH = fileURLToPath(
@@ -25,6 +28,8 @@ export interface ExperienceLibrary {
 export interface ExperienceLibraryOptions {
   /** null = 纯内存（自测用）；不传 = backend/data/experiences.json */
   filePath?: string | null;
+  /** 容量上限，默认 2000；超出后批量裁剪旧复盘，保留全部 playbook */
+  maxEntries?: number;
   logger?: EngineLogger;
 }
 
@@ -98,11 +103,32 @@ export function createExperienceLibrary(
   const filePath =
     options.filePath === undefined ? DEFAULT_FILE_PATH : options.filePath;
   const logger = options.logger;
+  const maxEntries = Math.max(50, options.maxEntries ?? 2000);
+  const pruneBatch = Math.max(20, Math.round(maxEntries * 0.1));
 
   let entries: ExperienceEntry[] = [...SEED_EXPERIENCES];
   let loaded = false;
   let loadPromise: Promise<void> | null = null;
   let saveChain: Promise<void> = Promise.resolve();
+  /** 首次搜索时构建，之后搜索复用；新增经验只做增量更新 */
+  let cachedIndex: MutableTfidfIndex | null = null;
+
+  function pruneIfNeeded(): boolean {
+    if (entries.length <= maxEntries + pruneBatch) return false;
+    const playbooks = entries.filter((entry) => entry.source === 'playbook');
+    const reviews = entries
+      .filter((entry) => entry.source !== 'playbook')
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, Math.max(0, maxEntries - playbooks.length));
+    entries = [...playbooks, ...reviews].sort(
+      (a, b) => a.createdAt - b.createdAt,
+    );
+    logger?.info('经验库达到容量上限，已裁剪旧复盘', {
+      kept: entries.length,
+      maxEntries,
+    });
+    return true;
+  }
 
   async function persist(): Promise<void> {
     if (!filePath) return;
@@ -145,6 +171,8 @@ export function createExperienceLibrary(
       }
 
       entries = [...merged.values()];
+      pruneIfNeeded();
+      cachedIndex = null;
       loaded = true;
       if (filePath) await persist();
     })();
@@ -170,7 +198,8 @@ export function createExperienceLibrary(
     async search(query: string, topK = 3): Promise<ExperienceMatch[]> {
       await load();
       if (entries.length === 0) return [];
-      return buildTfidfIndex(entries).search(query, topK);
+      cachedIndex ??= createTfidfIndex(entries);
+      return cachedIndex.search(query, topK);
     },
 
     async addFromReport(report: ReviewReport): Promise<ExperienceEntry | null> {
@@ -229,6 +258,12 @@ export function createExperienceLibrary(
       };
 
       entries.push(entry);
+      const pruned = pruneIfNeeded();
+      if (pruned) {
+        cachedIndex = null;
+      } else if (cachedIndex) {
+        cachedIndex.add(entry);
+      }
       await persist();
       logger?.info('经验库已写入本场复盘', { id });
       return entry;

@@ -254,4 +254,5 @@ interface LiveState {
 
 - 数据文件：`backend/data/experiences.json`（已 gitignore；首次运行写入 5 条种子）；
 - 检索：零依赖中文分词（`Intl.Segmenter` + CJK bigram + 运营领域词典）→ TF-IDF 余弦相似度 → 历史增量 / 置信度加权优先级；
+- 性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重（IDF 是全局统计，无法完全零全局计算）；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook；
 - 每场复盘自动沉淀；知识库 SOP 用 `source: 'playbook'` 导入，复用同一套检索。
