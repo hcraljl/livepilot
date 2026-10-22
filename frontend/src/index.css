@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局基线：驾驶舱浅色底 + 深色文字（演示投影高对比，规范 §2.7） */
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-brand-50 text-gray-900 antialiased;
+}

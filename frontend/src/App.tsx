@@ -1,0 +1,93 @@
+/**
+ * App —— LivePilot 运营驾驶舱根组件
+ *
+ * v0.2.0（M2/M3）：完成真实驾驶舱——分屏看板 + AI 决策流 + 右屏观看页 + 智能复盘页。
+ * 数据唯一来源：useSSE 订阅的后端全量 LiveState 帧；REST 动作走 lib/api.ts。
+ * 负责人：A
+ */
+import { useState } from 'react';
+import { useSSE } from './hooks/useSSE';
+import { ConnectionBadge } from './components/ConnectionBadge';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { SplitView } from './layout/SplitView';
+import { ControlBar } from './components/ControlBar';
+import { MetricCards } from './components/MetricCards';
+import { Funnel } from './components/Funnel';
+import { ProductRanking } from './components/ProductRanking';
+import { InteractionTimeline } from './components/InteractionTimeline';
+import { DecisionStream } from './components/DecisionStream';
+import { StrategyPanel } from './components/StrategyPanel';
+import { CopilotPanel } from './components/CopilotPanel';
+import { WatchEmbed } from './components/WatchEmbed';
+import { ReviewPage } from './components/ReviewPage';
+import { MODE_LABELS } from './lib/constants';
+
+type View = 'dashboard' | 'review';
+
+const VIEW_TABS: { key: View; label: string }[] = [
+  { key: 'dashboard', label: '实时看板' },
+  { key: 'review', label: '智能复盘' },
+];
+
+export default function App() {
+  const { state, status, error } = useSSE();
+  const [view, setView] = useState<View>('dashboard');
+
+  return (
+    <div className="flex h-screen flex-col bg-brand-50 text-gray-900">
+      <header className="flex flex-wrap items-center gap-4 border-b border-gray-200 bg-white px-5 py-2.5">
+        <h1 className="text-base font-medium">LivePilot · 智播副驾</h1>
+        <nav className="flex rounded-md border border-gray-200 p-0.5">
+          {VIEW_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setView(tab.key)}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                view === tab.key ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+        {state && (
+          <span className="text-xs text-gray-500">
+            模式：<b className="font-medium text-gray-700">{MODE_LABELS[state.mode]}</b>
+            {state.running && <b className="ml-2 font-medium text-success-600">● 直播中</b>}
+          </span>
+        )}
+        <div className="ml-auto">
+          <ConnectionBadge status={status} />
+        </div>
+      </header>
+
+      {status === 'error' && error && (
+        <div className="border-b border-danger-100 bg-danger-50 px-5 py-1 text-xs text-danger-700">{error}</div>
+      )}
+
+      <main className="min-h-0 flex-1">
+        {view === 'dashboard' ? (
+          <ErrorBoundary key="dashboard" fallbackTitle="看板渲染异常，已降级（演示不中断）">
+            <SplitView sidebar={<WatchEmbed state={state} />}>
+              <ControlBar state={state} />
+              <MetricCards state={state} />
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Funnel funnel={state?.funnel ?? null} />
+                <ProductRanking state={state} />
+              </div>
+              <InteractionTimeline state={state} />
+              <DecisionStream state={state} />
+              <StrategyPanel state={state} />
+              <CopilotPanel />
+            </SplitView>
+          </ErrorBoundary>
+        ) : (
+          <ErrorBoundary key="review" fallbackTitle="复盘页渲染异常，已降级（演示不中断）">
+            <ReviewPage />
+          </ErrorBoundary>
+        )}
+      </main>
+    </div>
+  );
+}
