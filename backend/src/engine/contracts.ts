@@ -1,6 +1,7 @@
 import type {
   Decision,
   ExperienceMatch,
+  ExperienceResult,
   LiveState,
   SessionExport,
 } from '../../../shared/types.js';
@@ -74,6 +75,39 @@ export interface CandidateRankingResult {
   source: 'llm';
 }
 
+/** 副驾操作选择：人工从 TopK 经验里选，或让 LLM 在候选动作里挑一个 */
+export interface ActionRecommendationInput {
+  scenario: string | null;
+  metrics: {
+    online: number;
+    gmv: number;
+    orders: number;
+    danmakuRate: number;
+    elapsedMin: number;
+    remainingMin: number;
+    currentProduct: string;
+  };
+  experiences: ExperienceMatch[];
+  actions: {
+    experienceId: string;
+    experienceTitle: string;
+    action: string;
+    label: string;
+    similarity: number;
+    priority: number;
+    source: 'review' | 'playbook';
+    result?: ExperienceResult;
+  }[];
+  recentActions: string[];
+}
+
+export interface ActionRecommendation {
+  experienceId: string;
+  action: string;
+  reason: string;
+  source: 'llm' | 'template';
+}
+
 export interface ReviewNarrativeInput {
   totalMin: number;
   peakOnline: number;
@@ -120,6 +154,10 @@ export interface AiService {
   rankCandidates(
     input: CandidateRankingInput,
   ): Promise<CandidateRankingResult | null>;
+  /** 返回 null = 无 key / 超时 / 输出不合法；副驾侧可回退人工选择 */
+  recommendAction(
+    input: ActionRecommendationInput,
+  ): Promise<ActionRecommendation | null>;
 }
 
 export interface EngineLogger {

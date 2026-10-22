@@ -109,6 +109,7 @@ curl http://localhost:4000/api/replay
 - `backend/src/review/`：基于 `store.timeline` 的 3 分钟窗口归因 + 5 段复盘，`/api/replay` 自动接管。
 - `backend/src/experience/`：TF-IDF 复盘经验库，首次运行写入 5 条种子到 `backend/data/experiences.json`；知识库 SOP 用 `source: 'playbook'` 导入。
 - 经验库性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook。
+- 副驾候选：`GET /api/copilot/candidates?topK=5` 返回 TF-IDF TopK 经验与可选动作，人工选择或让 AI 推荐；`POST /api/copilot/apply` 先预览、`confirm=true` 才执行，AI 只能在候选动作白名单内选。
 - 端到端自测：`npm run engine:demo -w backend`（跑 B 的真实模拟器，mock 掉 Polyv 调用，约 10 秒）。
 - 接真实 DeepSeek：`.env` 填 `DEEPSEEK_API_KEY`；不填时决策理由与复盘均走模板，动作链不受影响。
 

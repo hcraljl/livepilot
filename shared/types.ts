@@ -162,6 +162,8 @@ export interface StrategyConfig {
   enabled: boolean;
   /** 智能档位：off=纯规则+TF-IDF；hybrid=规则决策+LLM 文案；full=LLM 在候选内重排 */
   aiLevel: AiLevel;
+  /** 复盘 / 副驾展示的经验候选条数（1~10） */
+  experienceTopK: number;
   /** 留存保卫：窗口内在线跌幅阈值（0.15 = 15%） */
   retentionDropPct: number;
   /** 留存保卫：观察窗口（秒） */
@@ -301,6 +303,34 @@ export interface ExperienceEntry {
 export interface ExperienceMatch extends ExperienceEntry {
   similarity: number;
   priority: number;
+}
+
+/** 副驾候选动作：来自 TopK 历史经验，人工选择或 AI 推荐 */
+export interface CopilotActionOption {
+  experienceId: string;
+  experienceTitle: string;
+  action: ActionType;
+  label: string;
+  similarity: number;
+  priority: number;
+  source: 'review' | 'playbook';
+  result?: ExperienceResult;
+}
+
+export interface CopilotRecommendation {
+  experienceId: string;
+  action: ActionType;
+  reason: string;
+  source: 'llm' | 'template';
+}
+
+export interface CopilotCandidatesResp {
+  aiLevel: AiLevel;
+  topK: number;
+  query: string;
+  experiences: ExperienceMatch[];
+  actions: CopilotActionOption[];
+  recommendation: CopilotRecommendation | null;
 }
 
 export interface ReviewMark {

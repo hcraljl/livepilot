@@ -33,6 +33,16 @@ export interface ExperienceLibraryOptions {
   logger?: EngineLogger;
 }
 
+/** 低价值/测试场次不进入候选，避免污染 TopK */
+export function isUsefulExperience(entry: ExperienceEntry): boolean {
+  if (entry.source === 'playbook') return true;
+  if (!entry.result) return true;
+  return (
+    entry.result.incrementalGmv >= 300 ||
+    entry.result.incrementalOrders >= 5
+  );
+}
+
 function isStringArray(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -208,6 +218,8 @@ export function createExperienceLibrary(
         (item) => item.incrementalGmv > 0,
       );
       if (leaderboard.length === 0) return null;
+      // 直播太短 / 只有单个动作 / 增量太低，不足以沉淀为可复用经验
+      if (report.live.totalMin < 3 || leaderboard.length < 2) return null;
 
       const best = leaderboard[0];
       const id = `review-${best.decisionId}`;
@@ -225,6 +237,7 @@ export function createExperienceLibrary(
       const totalGmv = Math.round(
         leaderboard.reduce((sum, item) => sum + item.incrementalGmv, 0),
       );
+      if (totalGmv < 300) return null;
 
       const takeaways = report.suggestions.filter(
         (item) =>

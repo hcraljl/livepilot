@@ -68,6 +68,7 @@ export const config = {
   defaultStrategy: {
     enabled: true,
     aiLevel: 'hybrid',
+    experienceTopK: 5,
     retentionDropPct: 0.15,
     retentionWindowSec: 60,
     conversionCtrThreshold: 0.03,

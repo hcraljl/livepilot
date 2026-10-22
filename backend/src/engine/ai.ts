@@ -1,4 +1,6 @@
 import type {
+  ActionRecommendation,
+  ActionRecommendationInput,
   AiService,
   CandidateRankingInput,
   CandidateRankingResult,
@@ -351,6 +353,57 @@ export function createAiService(config: AiConfig = {}): AiService {
         return { rule, reason, source: 'llm' };
       } catch {
         logger?.warn('LLM 候选排序 JSON 解析失败，回退规则优先级');
+        return null;
+      }
+    },
+
+    async recommendAction(
+      input: ActionRecommendationInput,
+    ): Promise<ActionRecommendation | null> {
+      if (!apiKey || input.actions.length === 0) return null;
+
+      const content = await chat(
+        [
+          {
+            role: 'system',
+            content:
+              '你是直播运营副驾。只能从 actions 列表中选一个操作，禁止创造新动作或新经验。根据当前指标、场景和历史经验，选择此刻最值得执行的一个；输出 JSON：{"experienceId":"...","action":"...","reason":"一句话中文理由，最多60字，只能引用输入中的数字"}。',
+          },
+          { role: 'user', content: JSON.stringify(input) },
+        ],
+        { timeoutMs: 1500, maxTokens: 240, json: true },
+      );
+      if (!content) return null;
+
+      try {
+        const cleaned = content
+          .replace(/^```(?:json)?/i, '')
+          .replace(/```$/, '')
+          .trim();
+        const parsed = JSON.parse(cleaned) as Partial<ActionRecommendation>;
+        const experienceId =
+          typeof parsed.experienceId === 'string'
+            ? parsed.experienceId
+            : '';
+        const action =
+          typeof parsed.action === 'string' ? parsed.action : '';
+        const reason =
+          typeof parsed.reason === 'string'
+            ? clampText(parsed.reason, 82)
+            : '';
+        const match = input.actions.find(
+          (item) =>
+            item.experienceId === experienceId && item.action === action,
+        );
+        if (!match || !reason || hasInventedNumber(reason, input)) return null;
+        return {
+          experienceId,
+          action,
+          reason,
+          source: 'llm',
+        };
+      } catch {
+        logger?.warn('LLM 副驾操作推荐 JSON 解析失败，回退人工选择');
         return null;
       }
     },

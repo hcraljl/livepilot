@@ -19,6 +19,7 @@ import { store } from '../store/state.ts';
 import { simulator } from '../simulator/simulator.ts';
 import { createAiService } from './ai.ts';
 import type {
+  ActionRecommendationInput,
   CandidateRankingInput,
   DecisionExplanationInput,
   EngineLogger,
@@ -266,7 +267,98 @@ async function smokeAi(): Promise<boolean> {
       ? 'PASS：full 档候选重排 + 非法规则回退'
       : 'FAIL：候选重排异常',
   );
-  return ok && rankOk;
+
+  const recommendInput: ActionRecommendationInput = {
+    scenario: 'low_ctr',
+    metrics: {
+      online: 2200,
+      gmv: 18000,
+      orders: 160,
+      danmakuRate: 0.31,
+      elapsedMin: 15.6,
+      remainingMin: 14.4,
+      currentProduct: '手工红糖姜茶礼盒',
+    },
+    experiences: [],
+    actions: [
+      {
+        experienceId: 'seed-conversion-1',
+        experienceTitle: '商品点击率 2.7%：推商品 + 福利抽奖',
+        action: 'push_product',
+        label: '推送商品',
+        similarity: 0.56,
+        priority: 0.4,
+        source: 'review',
+      },
+      {
+        experienceId: 'seed-closing-1',
+        experienceTitle: '剩余 5 分钟 GMV 不足：发券 + 公告逼单',
+        action: 'coupon',
+        label: '优惠券',
+        similarity: 0.2,
+        priority: 0.1,
+        source: 'review',
+      },
+    ],
+    recentActions: [],
+  };
+  const recommendFetch = (async (): Promise<Response> =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                experienceId: 'seed-conversion-1',
+                action: 'push_product',
+                reason: '点击率低于阈值，优先推商品。',
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+  const badRecommendFetch = (async (): Promise<Response> =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                experienceId: 'not_exist',
+                action: 'coupon',
+                reason: '不存在的经验',
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+
+  const recommendAi = createAiService({
+    apiKey: 'test-key',
+    fetchImpl: recommendFetch,
+  });
+  const badRecommendAi = createAiService({
+    apiKey: 'test-key',
+    fetchImpl: badRecommendFetch,
+  });
+  const recommendation = await recommendAi.recommendAction(recommendInput);
+  const badRecommendation =
+    await badRecommendAi.recommendAction(recommendInput);
+  const recommendOk =
+    recommendation?.experienceId === 'seed-conversion-1' &&
+    recommendation.action === 'push_product' &&
+    recommendation.source === 'llm' &&
+    badRecommendation === null;
+  console.log(
+    recommendOk
+      ? 'PASS：副驾操作推荐 + 非法经验回退'
+      : 'FAIL：副驾操作推荐异常',
+  );
+  return ok && rankOk && recommendOk;
 }
 
 async function smokeExperience(): Promise<boolean> {

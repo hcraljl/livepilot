@@ -16,6 +16,7 @@ import { createAiService, templateReviewNarrative } from '../engine/ai.js';
 import { buildExperienceQuery } from '../experience/query.js';
 import {
   getDefaultExperienceLibrary,
+  isUsefulExperience,
   type ExperienceLibrary,
 } from '../experience/store.js';
 import {
@@ -132,6 +133,10 @@ export async function buildReviewReport(
       }
     : null;
 
+  const experienceTopK = Math.min(
+    10,
+    Math.max(1, session.strategy.experienceTopK ?? 3),
+  );
   let experiences: ExperienceMatch[] = [];
   if (input.experienceLibrary) {
     try {
@@ -142,7 +147,7 @@ export async function buildReviewReport(
             leaderboard,
             productRanking: session.products,
           }),
-          4,
+          experienceTopK + 3,
         )
       )
         .filter(
@@ -150,7 +155,8 @@ export async function buildReviewReport(
             item.source !== 'review' ||
             item.sessionId !== session.sessionId,
         )
-        .slice(0, 3);
+        .filter(isUsefulExperience)
+        .slice(0, experienceTopK);
     } catch (error) {
       input.logger?.warn('经验库检索失败，跳过历史经验', { error });
     }

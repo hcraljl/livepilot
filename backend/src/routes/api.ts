@@ -14,6 +14,7 @@ import { polyvClient } from '../polyv/client.ts';
 import { executeAction, executeDecision } from '../polyv/executor.ts';
 import { buildFallbackReplay } from '../services/replay-fallback.ts';
 import { config } from '../config.ts';
+import { copilotRouter } from './copilot.ts';
 
 export const apiRouter = Router();
 
@@ -172,3 +173,6 @@ apiRouter.get('/session/export', (req, res) => {
 apiRouter.get('/polyv/capabilities', (_req, res) => {
   res.json(ok(polyvClient.capabilities()));
 });
+
+// C 扩展：副驾候选 / 操作选择
+apiRouter.use('/copilot', copilotRouter);

@@ -114,6 +114,27 @@
 `GET /api/polyv/capabilities` → `{ ok: true, data: { useReal, channelId, apiBase,
    actions: [{ action, label, method, path }], webhook, statsPath } }`
 
+### 12. 副驾候选 / 操作选择（C 扩展）
+
+`GET /api/copilot/candidates?topK=5` → `{ ok: true, data: CopilotCandidatesResp }`
+
+- 用当前指标 + 近期归因生成 query，返回 TF-IDF TopK 历史经验（不是只给一条）；
+- `topK` 可传 1~10，缺省读 `strategy.experienceTopK`（默认 5）；
+- `actions` 是经验里可复用的动作白名单；`recommendation` 是可选 AI 建议：
+  - `aiLevel=off` → 永远 `null`，只给人工选；
+  - `aiLevel=hybrid/full` → LLM 在候选动作里选一个；无 key / 超时 / 非法输出时回退为相似度最高的模板建议；
+- 低价值经验（GMV<300 或订单<5、短场次、单动作）会被过滤，不进入候选。
+
+`POST /api/copilot/apply`
+
+```json
+{ "experienceId": "seed-conversion-1", "action": "push_product", "confirm": false }
+```
+
+- `confirm=false` → 只返回预览（动作、标题、按当前商品实例化的参数），**不执行**；
+- `confirm=true` → 二次确认后调用执行层；动作必须是该经验 `actions` 里的白名单项，否则 400；
+- 返回执行决策与 Polyv 回执（mock/real 可在 `result.mock` 区分）。
+
 ---
 
 ## 二、SSE 实时推送

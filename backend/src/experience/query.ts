@@ -4,7 +4,7 @@ import type {
   ProductRank,
 } from '../../../shared/types.js';
 
-const ACTION_LABELS: Record<string, string> = {
+export const ACTION_LABELS: Record<string, string> = {
   lottery: '抽奖',
   welfare_lottery: '福利抽奖',
   answer_card: '答题卡',
