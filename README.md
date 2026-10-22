@@ -111,6 +111,7 @@ curl http://localhost:4000/api/replay
 - 经验库性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook。
 - 副驾候选：`GET /api/copilot/candidates?topK=5` 返回 TF-IDF TopK 经验与可选动作，人工选择或让 AI 推荐；`POST /api/copilot/apply` 先预览、`confirm=true` 才执行，AI 只能在候选动作白名单内选。
 - 官方 API 常量与经验分离：接口/method/path/必填参数见 [`docs/polyv-api.md`](./docs/polyv-api.md) 和 `backend/src/polyv/api-catalog.ts`，在线 `GET /api/polyv/operations`；官方操作不写入 `backend/data/experiences.json`。
+- 官方全量 488 页文档索引：[`docs/polyv-api-index.md`](./docs/polyv-api-index.md)。公开接口只展示官方 method/path；B 的内部执行路径/默认参数留在 `client.ts`，不对外暴露。
 - 端到端自测：`npm run engine:demo -w backend`（跑 B 的真实模拟器，mock 掉 Polyv 调用，约 10 秒）。
 - 接真实 DeepSeek：`.env` 填 `DEEPSEEK_API_KEY`；不填时决策理由与复盘均走模板，动作链不受影响。
 

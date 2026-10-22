@@ -3,7 +3,8 @@
 > 来源：<https://help.polyv.net/live/api/>（2026-10-22 抓取核对）  
 > 代码常量：`backend/src/polyv/api-catalog.ts`  
 > 在线查看：`GET /api/polyv/operations`  
-> **执行层路径以 B 的 `backend/src/polyv/client.ts` 为准**；本目录用于核对/展示，不直接改 B 的实现。
+> 全量索引：[polyv-api-index.md](./polyv-api-index.md)（489 个官方文档页面）  
+> **本目录展示官方 API，是客户可见的公开说明；B 的内部执行路径 / 默认参数只在 `backend/src/polyv/client.ts` 维护，不通过 API 暴露。**
 
 ## 0. 和经验库的边界
 
@@ -32,8 +33,8 @@ npm run sign:selftest -w backend
 
 | action | method | 官方 path | 必填（除公共参数） | 官方文档 |
 |---|---|---|---|---|
-| `lottery` | POST | `/live/v4/channel/lottery_activity/create`（B 执行路径；官方文档页写 `/lottery-activity/create`） | `channelId`、`activityName`、`lotteryCondition`、`amount`、`prizeName` | [创建抽奖](https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/) |
-| `welfare_lottery` | POST | `/live/v4/channel/lottery_activity/create`（同上） | 同上；用 `lotteryCondition` 设互动条件 | 同上 |
+| `lottery` | POST | `/live/v4/channel/lottery-activity/create` | `channelId`、`activityName`、`lotteryCondition`、`amount`、`prizeName` | [创建抽奖](https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/) |
+| `welfare_lottery` | POST | `/live/v4/channel/lottery-activity/create` | 同上；用 `lotteryCondition` 设互动条件 | 同上 |
 | `answer_card` | POST | `/live/v4/channel/question/send` | `channelId`、`questionId` | [发送答题](https://help.polyv.net/live/api/live_interaction/send_question/) |
 | `checkin` | POST | `/live/v4/chat/batch-checkin` | `channelId` | [批量签到](https://help.polyv.net/live/api/v4/chat/checkin/batch_checkin/) |
 | `push_card` | POST | `/live/v4/channel/card-push/push` | `channelId`、`cardPushId` | [推送卡片](https://help.polyv.net/live/api/v4/channel/market/cardPush/push/) |
@@ -57,7 +58,7 @@ none / invite / duration / comment / question / questionnaire
 
 | 用途 | method | path | 必填 | 文档 |
 |---|---|---|---|---|
-| 场次统计 | GET | `/live/v3/channels/statistics/view`（B 默认，可用 `POLYV_STATS_PATH` 覆盖；官方为 `/live/v3/channel/statistics/get-session-stats`） | `channelId` | [get-session-stats](https://help.polyv.net/live/api/channel/viewdata/get_session_stats/) |
+| 场次统计 | GET | `/live/v3/channel/statistics/get-session-stats` | `channelId` | [get-session-stats](https://help.polyv.net/live/api/channel/viewdata/get_session_stats/) |
 | 统计汇总（v4） | GET | `/live/v4/statistics/session-stats/summary/list` | `channelId` 可选 | [summary_list](https://help.polyv.net/live/api/v4/statistics/summary_list/) |
 | 事件回调 | POST | 本地 `/polyv/webhook` | — | [interaction_callback](https://help.polyv.net/live/api/callback/interaction_callback/) |
 
@@ -76,12 +77,12 @@ none / invite / duration / comment / question / questionnaire
 
 当前 `USE_REAL_POLYV=false` 时 mock 可完整演示；切真实前由 B 先完成资源 ID 映射，再用 `/api/action` 手动验证公告/抽奖。
 
-## 5. 本次核对结论（仅记录，执行层仍按 B）
+## 5. 公开目录 vs B 的内部实现
 
-- 抽奖：B 使用 `/lottery_activity/create`；官方文档页展示 `/lottery-activity/create`（连字符），**以 B 的现场验证为准**，本目录只记录差异；
-- 优惠券：官方要求 `couponIds`；B 的 `couponName / couponValue` 默认值需要 B 真实联调时复核；
-- 统计：B 默认 `/live/v3/channels/statistics/view`；官方提供 `/live/v3/channel/statistics/get-session-stats`，可用 `POLYV_STATS_PATH` 覆盖；
-- 答题卡/卡片/商品推送：官方依赖 `questionId / cardPushId / productId`，这些资源 ID 由 B 在执行层准备；
+- **公开目录**：官方 method/path/docUrl/必填参数，客户和前端可见；
+- **B 的内部实现**：`client.ts` 的 `ACTION_ENDPOINTS`、实际请求路径、默认参数、资源 ID 映射；只在后端内部使用，不通过 `/api/polyv/operations` 或 `/api/polyv/capabilities` 暴露；
+- 官方文档与 B 的执行路径可能不同（如抽奖连字符/下划线），以 B 的现场验证为准，公开目录不替 B 改实现；
+- 官方要求 `couponIds / cardPushId / productId / questionId`；真实调用前由 B 在执行层准备；
 - 抽奖条件官方不支持 product，福利抽奖建议 `comment` 条件 + 优惠券/商品推送；引擎侧标签已改为“互动福利抽奖”。
 
 ## 6. 真实演示前检查
