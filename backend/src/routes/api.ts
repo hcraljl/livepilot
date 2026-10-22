@@ -213,6 +213,59 @@ apiRouter.get('/polyv/capabilities', (_req, res) => {
       statsPath: POLYV_API_OPERATIONS.find(
         (operation) => operation.action === 'stats',
       )?.path,
+      /** 演练 / 真实 的运行时状态（现场可在界面上一键切换） */
+      dryRun: polyvClient.dryRun,
+      credentialsReady: polyvClient.credentialsReady,
+    }),
+  );
+});
+
+/**
+ * GET /api/polyv/mode —— 当前是「模拟演练」还是「真实频道」
+ * POST /api/polyv/mode { useReal: boolean } —— 运行时切换
+ *
+ * 存在意义：账号密钥配好之后仍然要能跑纯模拟（彩排、反复演示不污染真实直播间）。
+ */
+apiRouter.get('/polyv/mode', (_req, res) => {
+  res.json(
+    ok({
+      useReal: polyvClient.isReal,
+      dryRun: polyvClient.dryRun,
+      credentialsReady: polyvClient.credentialsReady,
+      channelId: config.polyv.channelId || null,
+      label: polyvClient.isReal ? `真实频道 ${config.polyv.channelId}` : '模拟演练（不发真实请求）',
+    }),
+  );
+});
+
+apiRouter.post('/polyv/mode', (req, res) => {
+  const raw = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof raw.useReal !== 'boolean') {
+    res.status(400).json(fail('useReal 必须是布尔值'));
+    return;
+  }
+  const wantReal = raw.useReal;
+  const accepted = polyvClient.setDryRun(!wantReal);
+
+  if (wantReal && !accepted) {
+    res.status(409).json(
+      fail('缺少 appId / appSecret / channelId，无法切到真实模式；已在模拟演练模式'),
+    );
+    return;
+  }
+
+  store.logEvent(
+    'action',
+    accepted && wantReal ? '切换为真实调用' : '切换为模拟演练',
+    accepted && wantReal
+      ? `后续动作将真实请求频道 ${config.polyv.channelId}`
+      : '后续动作只产生模拟回执，不会打到保利威频道',
+  );
+  res.json(
+    ok({
+      useReal: polyvClient.isReal,
+      dryRun: polyvClient.dryRun,
+      label: polyvClient.isReal ? `真实频道 ${config.polyv.channelId}` : '模拟演练（不发真实请求）',
     }),
   );
 });

@@ -61,9 +61,33 @@ npm run dev:frontend
 
 打开 <http://localhost:5173> ，点「开始直播（模拟）」，即可看到 AI 自动编排实时演示。
 
+### 页面入口（后端单端口，4000 全都能开）
+
+| 入口 | 说明 |
+| --- | --- |
+| `/` | 有正式前端就进正式前端；没有则自动跳到 `/demo/` |
+| `/demo/` | **模拟演示台**（B 的看板，仓库内固定路径，不会被前端构建覆盖） |
+| `/watch/` | 真实观看页（保利威观看 SDK + 模拟开播按钮） |
+
+模拟和真实是两条独立通道，互不影响：
+
+```bash
+# 查看当前是模拟演练还是真实频道
+curl http://localhost:4000/api/polyv/mode
+
+# 切回模拟演练（不发真实请求，彩排/反复演示用）
+curl -X POST http://localhost:4000/api/polyv/mode -H "Content-Type: application/json" -d '{"useReal":false}'
+
+# 切到真实频道（需要 .env 里 appId/appSecret/channelId 齐备，否则返回 409 并保持模拟）
+curl -X POST http://localhost:4000/api/polyv/mode -H "Content-Type: application/json" -d '{"useReal":true}'
+```
+
+> 关键：**配好真实密钥后，模拟依然可用**。`useReal:false` 时所有动作只产生模拟回执（`mock:true`），
+> 不会打到保利威频道，彩排不会污染真实直播间的互动与券库存。
+
 ## 后端（成员 B）开发须知
 
-### 自检命令（改完后端先跑这三条）
+### 自检命令（改完后端先跑这几条）
 
 ```bash
 npm run typecheck -w backend      # 类型检查，零报错才算完
@@ -72,7 +96,7 @@ npm run sim:check -w backend      # 无界面跑完整场模拟（约 8 秒）�
 npm run engine:demo -w backend    # C 侧端到端：真实模拟器 + mock 执行，验证 5 条规则/归因/经验库
 
 # 后端起在 4000 后，另开终端：
-npm run smoke -w backend          # 19 项 HTTP 端到端断言（SSE 首帧 / 动作回执 / 僵尸 tick / 参数校验）
+npm run smoke -w backend          # 25 项 HTTP 端到端断言（含页面入口 / 演练开关 / SSE 首帧 / 僵尸 tick）
 ```
 
 ### 模拟器节奏

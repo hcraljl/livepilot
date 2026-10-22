@@ -23,6 +23,15 @@
   .chip{padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);font-size:12px;color:var(--dim)}
   .chip.ok{color:#8be3b4;border-color:#1e4430;background:#102019}
   .chip.err{color:#ffb3b5;border-color:#3a2026;background:#1b1216}
+  .chip.mock{color:#7fd9e6;border-color:#21404b;background:#0f1e25}
+  a.navlink{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:8px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--dim);font-size:12.5px;text-decoration:none}
+  a.navlink:hover{border-color:#31454f;color:var(--txt)}
+  a.navlink.active{background:#16232c;color:var(--ai);border-color:#21404b}
+  .navtabs{display:flex;gap:6px;align-items:center}
+  .simbar{display:flex;align-items:center;gap:9px;margin-top:12px;padding:9px 13px;border-radius:11px;
+    border:1px solid #1e3a44;background:linear-gradient(180deg,#101d24,#0e181e);font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+  .simbar b{color:var(--ai)}
   .grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;margin-top:16px;align-items:start}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
   .panel>h2{margin:0;padding:10px 14px;font-size:12px;letter-spacing:.6px;color:var(--dim);font-weight:600;
@@ -50,11 +59,26 @@
     <div class="logo">PV</div>
     <h1>真实观看页 · 保利威观看 SDK<small>@polyv/live-watch-sdk v2.20.0（官方开源 SDK，CDN UMD 引入）</small></h1>
     <div class="spacer"></div>
+    <nav class="navtabs">
+      <a class="navlink" href="/demo/">← 模拟看板</a>
+      <a class="navlink active" href="/watch/">真实观看页</a>
+      <a class="navlink" href="/api/polyv/capabilities" target="_blank">能力清单</a>
+    </nav>
+    <span class="chip mock" id="execChip">动作：模拟回执</span>
     <span class="chip" id="sdkChip">SDK 未加载</span>
     <input id="channelId" placeholder="频道号 channelId" />
     <input id="nickName" placeholder="观众昵称" value="运营小助手" />
     <button class="primary" id="btnJoin">加入频道</button>
   </header>
+
+  <!-- 模拟入口也放在这一页：没配真实频道时，依然能在这里演示 AI 决策流 -->
+  <div class="simbar">
+    <span>没有真实频道？直接跑一场<b>模拟直播</b>，右侧 AI 决策流照样实时推送。</span>
+    <button class="primary" id="btnSim">▶ 模拟开播</button>
+    <button id="btnSimStop">■ 停播</button>
+    <span class="spacer"></span>
+    <span id="simState">未开播</span>
+  </div>
 
   <div class="grid">
     <section class="panel">
@@ -164,6 +188,10 @@ $('channelId').value = localStorage.getItem('livepilot.channelId') || '';
 
 // ---------- 3. 后端 AI 决策流（证明「AI 决策 → 真实 API → 真实观看页」闭环） ----------
 function renderDecisions(state) {
+  const m = state.metrics || {};
+  $('simState').textContent = state.running
+    ? `直播中 · ${(m.elapsedMin || 0).toFixed(1)} 分钟 · 在线 ${m.online}`
+    : (state.sessionId ? '本场已结束' : '未开播');
   const decs = (state.decisions || []).slice().reverse().slice(0, 12);
   if (!decs.length) return;
   $('decList').innerHTML = decs.map((d) => `
@@ -172,6 +200,7 @@ function renderDecisions(state) {
         <span class="tag rule">${d.rule || '规则'}</span>
         <span class="tag">${d.action}</span>
         <span style="color:${d.status === 'executed' ? '#2fbf71' : '#f5b942'}">${d.status}</span>
+        ${d.result ? `<span style="color:${d.result.mock ? '#f5b942' : '#2fbf71'}">${d.result.mock ? '模拟' : '真实'}</span>` : ''}
       </div>
       <div class="r">${d.reason || ''}</div>
     </div>`).join('');
@@ -184,6 +213,24 @@ function connectSse() {
 }
 connectSse();
 log('已连接 /api/stream，AI 决策会实时出现在右侧');
+
+// ---------- 4. 模拟入口（没配真实频道也能演示） ----------
+const post = (url, body) => fetch(url, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+}).then((r) => r.json());
+
+$('btnSim').onclick = async () => {
+  const r = await post('/api/sim/start', { totalMin: 30, speed: 60, seed: 20261022 });
+  log(r.ok ? '✓ 模拟直播已启动（右侧决策流实时推送）' : '✗ 启动失败：' + (r.error || ''), r.ok ? 's' : 'e');
+};
+$('btnSimStop').onclick = () => post('/api/sim/stop');
+
+// 执行模式徽标：模拟回执 / 真实调用
+fetch('/api/polyv/mode').then((r) => r.json()).then((r) => {
+  const d = r.data || r;
+  $('execChip').textContent = d.useReal ? '动作：真实调用 ' + (d.channelId || '') : '动作：模拟回执';
+  $('execChip').className = 'chip ' + (d.useReal ? 'ok' : 'mock');
+}).catch(() => {});
 </script>
 </body>
 </html>

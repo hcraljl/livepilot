@@ -48,8 +48,37 @@ export interface PreparedRequest {
 }
 
 export class PolyvClient {
+  /**
+   * 运行时「演练开关」：即使账号密钥全配好，也可以强制走模拟回执。
+   * 用途：现场彩排 / 反复演示时不污染真实直播间的互动与优惠券库存。
+   */
+  private forceMock = false;
+
   get isReal(): boolean {
+    return !this.forceMock && canUseRealPolyv();
+  }
+
+  /** 是否处于强制演练（即使凭据齐备也不发真实请求） */
+  get dryRun(): boolean {
+    return this.forceMock;
+  }
+
+  /** 账号侧凭据是否齐备（只决定"能不能"切真实，不代表当前就在真实） */
+  get credentialsReady(): boolean {
     return canUseRealPolyv();
+  }
+
+  /**
+   * 切换演练/真实。切真实时如果凭据不全，返回 false 并保持演练，
+   * 避免现场误切成"半真半假"的状态。
+   */
+  setDryRun(on: boolean): boolean {
+    if (!on && !canUseRealPolyv()) {
+      this.forceMock = true;
+      return false;
+    }
+    this.forceMock = on;
+    return true;
   }
 
   /** 当前账号侧资源齐备情况：真实模式的能力边界一目了然 */
@@ -68,6 +97,10 @@ export class PolyvClient {
     const status = this.resourceStatus();
     return {
       useReal: this.isReal,
+      /** 是否强制演练（凭据齐备也不真发） */
+      dryRun: this.forceMock,
+      /** 凭据是否齐备（决定能不能切真实） */
+      credentialsReady: canUseRealPolyv(),
       channelId: config.polyv.channelId,
       apiBase: config.polyv.apiBase,
       actions: (Object.keys(REAL_SPECS) as ActionType[]).map((action) => {
@@ -291,6 +324,9 @@ export class PolyvClient {
     const spec = REAL_SPECS[action];
     const started = Date.now();
     await sleep(40 + Math.floor(Math.random() * 90));
+    const reason = this.forceMock
+      ? 'dryRun=true（现场演练，强制不发真实请求）'
+      : 'USE_REAL_POLYV=false 或 密钥/频道未配齐';
     return {
       ok: true,
       mock: true,
@@ -298,7 +334,7 @@ export class PolyvClient {
       message: `模拟执行成功：${spec.label}（未调用真实频道）`,
       endpoint: `MOCK ${spec.method} ${spec.path}`,
       latencyMs: Date.now() - started,
-      data: { ...(opts.params ?? {}), simulated: true, action, note: 'USE_REAL_POLYV=false' },
+      data: { ...(opts.params ?? {}), simulated: true, action, note: reason },
     };
   }
 

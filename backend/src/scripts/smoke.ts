@@ -154,6 +154,24 @@ const main = async (): Promise<void> => {
   const badConfirm = await call('POST', '/api/decision/confirm', { id: 'dec_not_exist' });
   check('不存在的决策返回 404', badConfirm.status === 404);
 
+  // 14. 模拟入口必须一直在（演示台 + 演练开关）
+  const demoPage = await fetch(`${BASE}/demo/`);
+  check('模拟演示台 /demo/ 可访问', demoPage.ok, `HTTP ${demoPage.status}`);
+  const rootPage = await fetch(`${BASE}/`, { redirect: 'manual' });
+  check(
+    '根路径能进到页面（正式前端或自动跳模拟台）',
+    rootPage.status === 302 || rootPage.ok,
+    `HTTP ${rootPage.status}`,
+  );
+  const watchPage = await fetch(`${BASE}/watch/`);
+  check('真实观看页 /watch/ 可访问', watchPage.ok, `HTTP ${watchPage.status}`);
+  const polyvMode = await call('GET', '/api/polyv/mode');
+  check('演练/真实模式接口可用', polyvMode.json?.ok === true, polyvMode.json?.data?.label);
+  const backToMock = await call('POST', '/api/polyv/mode', { useReal: false });
+  check('一键切回模拟演练', backToMock.json?.data?.dryRun === true);
+  const badSwitch = await call('POST', '/api/polyv/mode', { useReal: 'yes' });
+  check('非法 useReal 返回 400', badSwitch.status === 400);
+
   // 收尾
   await call('POST', '/api/sim/stop');
 

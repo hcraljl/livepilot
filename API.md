@@ -26,6 +26,8 @@
 | GET | `/api/replay` | 一键复盘（AI 优先，缺位走兜底） | A 复盘页 |
 | GET | `/api/session/export` | 本场全量数据导出（`?download=1` 触发下载） | C / 留档 |
 | GET | `/api/polyv/capabilities` | 保利威能力清单（8 个动作 + 接口路径 + 是否真实模式） | 路演展示 |
+| GET | `/api/polyv/mode` | 当前是模拟演练还是真实频道（含凭据是否齐备） | A 顶部徽标 |
+| POST | `/api/polyv/mode` | 运行时切换模拟/真实（`{useReal:boolean}`） | A 一键切换 |
 | POST | `/polyv/webhook` | 保利威回调接收（验签） | 保利威服务器 |
 
 ### 1. 健康检查
@@ -111,8 +113,30 @@
 
 ### 11. 能力清单
 
-`GET /api/polyv/capabilities` → `{ ok: true, data: { useReal, channelId, apiBase,
-   actions: [{ action, label, method, path }], webhook, statsPath } }`
+`GET /api/polyv/capabilities` → `{ ok: true, data: { useReal, dryRun, credentialsReady, channelId, apiBase,
+   actions: [{ action, label, method, path, requiredParams, ready, missing }], webhook, statsPath } }`
+
+### 11.1 模拟 / 真实 切换（演示必需）
+
+`GET /api/polyv/mode` →
+```json
+{ "ok": true, "data": { "useReal": false, "dryRun": true, "credentialsReady": false,
+  "channelId": null, "label": "模拟演练（不发真实请求）" } }
+```
+
+`POST /api/polyv/mode` `{ "useReal": false }` → 切回模拟演练（永远成功，任何环境都能演示）
+`POST /api/polyv/mode` `{ "useReal": true }` → 切真实频道；凭据不全返回 **409** 并保持模拟
+
+> `dryRun:true` 表示强制演练：即使密钥齐备也不发真实请求，所有动作回执 `mock:true`。
+> 界面上的「切到真实频道 / 切回模拟演练」按钮就是打这个接口。
+
+### 11.2 页面入口（后端单端口托管）
+
+| 路径 | 内容 |
+| --- | --- |
+| `/` | 有正式前端则进正式前端，否则 302 → `/demo/` |
+| `/demo/` | 模拟演示台（AI 看板 + 开播控制 + 复盘侧栏） |
+| `/watch/` | 真实观看页（保利威观看 SDK，带模拟开播按钮） |
 
 ### 12. 副驾候选 / 操作选择（C 扩展）
 

@@ -45,6 +45,8 @@ const health = (_req: express.Request, res: express.Response) => {
   res.json({
     ok: true,
     useReal: polyvClient.isReal,
+    dryRun: polyvClient.dryRun,
+    credentialsReady: polyvClient.credentialsReady,
     running: store.get().running,
     mode: store.get().mode,
     source: store.get().source,
@@ -64,15 +66,46 @@ app.use(webhookRouter);
 const watchDir = path.resolve(process.cwd(), '..', 'frontend', 'watch');
 if (existsSync(watchDir)) {
   app.use('/watch', express.static(watchDir));
-  console.log(`[server] 真实观看页（观看 SDK）：http://localhost:${config.port}/watch/`);
+}
+
+/**
+ * 模拟演示台：源码在 frontend/demo，**不进 dist**，
+ * 这样 A 的前端一旦 build 也不会把它覆盖掉 —— 模拟入口永远是稳的。
+ */
+const demoDir = path.resolve(process.cwd(), '..', 'frontend', 'demo');
+const demoIndex = path.join(demoDir, 'index.html');
+const hasDemo = existsSync(demoIndex);
+if (hasDemo) {
+  app.use('/demo', express.static(demoDir));
 }
 
 // 前端构建产物托管（存在才挂载，不影响纯前后端分离开发）
 const distDir = path.resolve(process.cwd(), '..', 'frontend', 'dist');
-if (existsSync(distDir)) {
+const distIndex = path.join(distDir, 'index.html');
+const hasDist = existsSync(distIndex);
+if (hasDist) {
   app.use(express.static(distDir));
-  app.get(/^\/(?!api|polyv|health|watch).*/, (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
-  console.log(`[server] 已托管前端构建产物：${distDir}`);
+}
+
+// 根路径：有正式前端就进正式前端，没有就自动进模拟演示台（不再让人找不到入口）
+app.get('/', (_req, res) => {
+  if (hasDist) {
+    res.sendFile(distIndex);
+    return;
+  }
+  if (hasDemo) {
+    res.redirect('/demo/');
+    return;
+  }
+  res.status(404).json({
+    ok: false,
+    error: '未找到前端页面',
+    hint: '跑模拟演示台请用 /demo/；接口清单见 API.md',
+  });
+});
+
+if (hasDist) {
+  app.get(/^\/(?!api|polyv|health|watch|demo).*/, (_req, res) => res.sendFile(distIndex));
 }
 
 app.use((_req, res) => {
@@ -120,11 +153,18 @@ const mountEngine = async (): Promise<void> => {
 const server = app.listen(config.port, () => {
   console.log('\n========== LivePilot 后端已启动 ==========');
   console.table(describeEnv());
-  console.log(`  REST      http://localhost:${config.port}/api/state`);
-  console.log(`  SSE       http://localhost:${config.port}/api/stream`);
-  console.log(`  健康检查   http://localhost:${config.port}/health`);
-  console.log(`  Polyv 能力 http://localhost:${config.port}/api/polyv/capabilities`);
-  console.log(`  Webhook   http://localhost:${config.port}/polyv/webhook`);
+  const base = `http://localhost:${config.port}`;
+  console.log('  —— 页面入口 ——');
+  if (hasDist) console.log(`  前端（A 的正式界面） ${base}/`);
+  if (hasDemo) console.log(`  模拟演示台（B 的看板）${hasDist ? '' : ' ← 根路径自动跳这里'} ${base}/demo/`);
+  console.log(`  真实观看页（观看 SDK）${base}/watch/`);
+  console.log('  —— 接口 ——');
+  console.log(`  REST      ${base}/api/state`);
+  console.log(`  SSE       ${base}/api/stream`);
+  console.log(`  健康检查   ${base}/health`);
+  console.log(`  Polyv 能力 ${base}/api/polyv/capabilities`);
+  console.log(`  Polyv 模式 ${base}/api/polyv/mode  （模拟演练 / 真实频道，可运行时切换）`);
+  console.log(`  Webhook   ${base}/polyv/webhook`);
   console.log('==========================================\n');
   void mountEngine();
 });
