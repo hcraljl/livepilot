@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sign:selftest": "tsx src/polyv/sign.ts --selftest",
+    "sim:check": "tsx src/scripts/sim-check.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
