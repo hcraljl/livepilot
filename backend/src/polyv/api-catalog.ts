@@ -18,7 +18,10 @@ export interface PolyvApiOperation {
   action: PolyvOperationId;
   label: string;
   method: 'GET' | 'POST';
+  /** 项目执行路径：以 B 的 client.ts / config.ts 为准 */
   path: string;
+  /** 官方文档页展示的路径（如与执行层不同，仅用于核对） */
+  officialPath?: string;
   docUrl: string;
   description: string;
   requiredParams: string[];
@@ -34,7 +37,8 @@ export const POLYV_API_OPERATIONS: PolyvApiOperation[] = [
     action: 'lottery',
     label: '发起抽奖（无条件）',
     method: 'POST',
-    path: '/live/v4/channel/lottery-activity/create',
+    path: '/live/v4/channel/lottery_activity/create',
+    officialPath: '/live/v4/channel/lottery-activity/create',
     docUrl:
       'https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/',
     description: '在频道内创建抽奖活动，可设置开奖条件、奖品与中奖人数。',
@@ -52,14 +56,15 @@ export const POLYV_API_OPERATIONS: PolyvApiOperation[] = [
       'userLabels',
     ],
     notes:
-      'lotteryCondition 官方取值：none / invite / duration / comment / question / questionnaire；lotteryRange：all / notWinning / customGroup / userLabel。',
+      '执行层使用 B 的 /lottery_activity/create；官方文档页展示为 /lottery-activity/create，二者仅作核对，不擅自改 B。lotteryCondition 官方取值：none / invite / duration / comment / question / questionnaire。',
     source: 'official',
   },
   {
     action: 'welfare_lottery',
     label: '发起互动福利抽奖',
     method: 'POST',
-    path: '/live/v4/channel/lottery-activity/create',
+    path: '/live/v4/channel/lottery_activity/create',
+    officialPath: '/live/v4/channel/lottery-activity/create',
     docUrl:
       'https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/',
     description:
@@ -78,7 +83,7 @@ export const POLYV_API_OPERATIONS: PolyvApiOperation[] = [
       'userLabels',
     ],
     notes:
-      '官方抽奖条件不含“商品”类型，不能宣称 product 条件抽奖；用 comment / question 等互动条件 + coupon 实现商品福利。',
+      '执行路径以 B 的 /lottery_activity/create 为准。官方抽奖条件不含“商品”类型，建议用 comment / question 等互动条件 + coupon 实现福利。',
     source: 'official',
   },
   {
@@ -162,14 +167,15 @@ export const POLYV_API_OPERATIONS: PolyvApiOperation[] = [
     action: 'stats',
     label: '直播统计',
     method: 'GET',
-    path: '/live/v3/channel/statistics/get-session-stats',
+    path: '/live/v3/channels/statistics/view',
+    officialPath: '/live/v3/channel/statistics/get-session-stats',
     docUrl:
       'https://help.polyv.net/live/api/channel/viewdata/get_session_stats/',
     description: '获取场次统计；也提供 v4 汇总列表接口用于分页查询。',
     requiredParams: ['channelId'],
     optionalParams: ['sessionIds', 'startTime', 'endTime'],
     notes:
-      'v4 汇总接口：GET /live/v4/statistics/session-stats/summary/list。',
+      '执行层默认使用 B 的 /live/v3/channels/statistics/view（可用 POLYV_STATS_PATH 覆盖）；官方文档为 /live/v3/channel/statistics/get-session-stats，待 B 核对。',
     source: 'official',
   },
   {

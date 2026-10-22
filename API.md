@@ -140,7 +140,9 @@
 `GET /api/polyv/operations` → `{ ok: true, data: { auth, operations } }`
 
 - `auth`：公共签名参数名（`appId / timestamp / sign`）；
-- `operations`：8 个互动动作 + 统计 + 回调的官方 method / path / 必填参数 / docUrl；
+- `operations`：8 个互动动作 + 统计 + 回调的 method / path / 必填参数 / docUrl；
+  - `path` 是项目执行路径，以 B 的 `client.ts` 为准；
+  - `officialPath` 仅在官方文档与执行层不一致时出现（如抽奖的连字符版本），用于核对；
 - 这是**常量目录**，不写入经验库、不参与 TF-IDF；
 - 完整说明见 [`docs/polyv-api.md`](./docs/polyv-api.md)。
 

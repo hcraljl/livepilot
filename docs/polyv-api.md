@@ -2,7 +2,8 @@
 
 > 来源：<https://help.polyv.net/live/api/>（2026-10-22 抓取核对）  
 > 代码常量：`backend/src/polyv/api-catalog.ts`  
-> 在线查看：`GET /api/polyv/operations`
+> 在线查看：`GET /api/polyv/operations`  
+> **执行层路径以 B 的 `backend/src/polyv/client.ts` 为准**；本目录用于核对/展示，不直接改 B 的实现。
 
 ## 0. 和经验库的边界
 
@@ -31,8 +32,8 @@ npm run sign:selftest -w backend
 
 | action | method | 官方 path | 必填（除公共参数） | 官方文档 |
 |---|---|---|---|---|
-| `lottery` | POST | `/live/v4/channel/lottery-activity/create` | `channelId`、`activityName`、`lotteryCondition`、`amount`、`prizeName` | [创建抽奖](https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/) |
-| `welfare_lottery` | POST | `/live/v4/channel/lottery-activity/create` | 同上；用 `lotteryCondition` 设互动条件 | 同上 |
+| `lottery` | POST | `/live/v4/channel/lottery_activity/create`（B 执行路径；官方文档页写 `/lottery-activity/create`） | `channelId`、`activityName`、`lotteryCondition`、`amount`、`prizeName` | [创建抽奖](https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/) |
+| `welfare_lottery` | POST | `/live/v4/channel/lottery_activity/create`（同上） | 同上；用 `lotteryCondition` 设互动条件 | 同上 |
 | `answer_card` | POST | `/live/v4/channel/question/send` | `channelId`、`questionId` | [发送答题](https://help.polyv.net/live/api/live_interaction/send_question/) |
 | `checkin` | POST | `/live/v4/chat/batch-checkin` | `channelId` | [批量签到](https://help.polyv.net/live/api/v4/chat/checkin/batch_checkin/) |
 | `push_card` | POST | `/live/v4/channel/card-push/push` | `channelId`、`cardPushId` | [推送卡片](https://help.polyv.net/live/api/v4/channel/market/cardPush/push/) |
@@ -56,7 +57,7 @@ none / invite / duration / comment / question / questionnaire
 
 | 用途 | method | path | 必填 | 文档 |
 |---|---|---|---|---|
-| 场次统计 | GET | `/live/v3/channel/statistics/get-session-stats` | `channelId` | [get-session-stats](https://help.polyv.net/live/api/channel/viewdata/get_session_stats/) |
+| 场次统计 | GET | `/live/v3/channels/statistics/view`（B 默认，可用 `POLYV_STATS_PATH` 覆盖；官方为 `/live/v3/channel/statistics/get-session-stats`） | `channelId` | [get-session-stats](https://help.polyv.net/live/api/channel/viewdata/get_session_stats/) |
 | 统计汇总（v4） | GET | `/live/v4/statistics/session-stats/summary/list` | `channelId` 可选 | [summary_list](https://help.polyv.net/live/api/v4/statistics/summary_list/) |
 | 事件回调 | POST | 本地 `/polyv/webhook` | — | [interaction_callback](https://help.polyv.net/live/api/callback/interaction_callback/) |
 
@@ -64,36 +65,29 @@ none / invite / duration / comment / question / questionnaire
 
 ## 4. 账号侧资源 ID（真实调用必填）
 
-这些 ID 必须来自保利威后台/资源接口，**AI 不能生成**。在 `backend/.env` 配置：
-
-```env
-POLYV_DEFAULT_PRODUCT_ID=
-POLYV_DEFAULT_COUPON_IDS=
-POLYV_DEFAULT_CARD_PUSH_ID=
-POLYV_DEFAULT_QUESTION_ID=
-```
-
-执行层会在真实调用前注入：
+这些 ID 必须来自保利威后台/资源接口，**AI 不能生成**：
 
 - `push_product` → `productId`
-- `coupon` → `couponIds`（逗号分隔转数组）
+- `coupon` → `couponIds`（1~30 个）
 - `push_card` → `cardPushId`
 - `answer_card` → `questionId`
 
-未配置时：`USE_REAL_POLYV=false` 仍可完整演示（mock 回执）；`true` 时相应动作会因缺 ID 失败，这是预期行为，不会静默造假。
+**实现归属**：资源 ID 的准备/注入由 B 在执行层完成，本目录只记录官方要求，不写经验库、不擅自改 `client.ts`。
 
-## 5. 本次核对修正
+当前 `USE_REAL_POLYV=false` 时 mock 可完整演示；切真实前由 B 先完成资源 ID 映射，再用 `/api/action` 手动验证公告/抽奖。
 
-- 抽奖路径从 `/live/v4/channel/lottery_activity/create` 修正为 `/live/v4/channel/lottery-activity/create`（连字符）；
-- 优惠券去掉 `couponName / couponValue`，改为 `couponIds`；
-- 统计默认路径修正为 `/live/v3/channel/statistics/get-session-stats`；
-- 答题卡/卡片/商品推送明确依赖 `questionId / cardPushId / productId`；
-- 抽奖条件不支持 product，福利抽奖改用 `comment` 条件 + 优惠券/商品推送。
+## 5. 本次核对结论（仅记录，执行层仍按 B）
+
+- 抽奖：B 使用 `/lottery_activity/create`；官方文档页展示 `/lottery-activity/create`（连字符），**以 B 的现场验证为准**，本目录只记录差异；
+- 优惠券：官方要求 `couponIds`；B 的 `couponName / couponValue` 默认值需要 B 真实联调时复核；
+- 统计：B 默认 `/live/v3/channels/statistics/view`；官方提供 `/live/v3/channel/statistics/get-session-stats`，可用 `POLYV_STATS_PATH` 覆盖；
+- 答题卡/卡片/商品推送：官方依赖 `questionId / cardPushId / productId`，这些资源 ID 由 B 在执行层准备；
+- 抽奖条件官方不支持 product，福利抽奖建议 `comment` 条件 + 优惠券/商品推送；引擎侧标签已改为“互动福利抽奖”。
 
 ## 6. 真实演示前检查
 
 - [ ] `POLYV_APP_ID / POLYV_APP_SECRET / POLYV_CHANNEL_ID` 已配置
-- [ ] 4 个默认资源 ID 已配置，且属于该频道
+- [ ] B 已完成 4 类资源 ID 的映射（product / coupon / card / question）
 - [ ] `npm run sign:selftest -w backend` 通过
 - [ ] `USE_REAL_POLYV=true` 后先用 `/api/action` 手动触发一次公告/抽奖
 - [ ] 观看页 SDK 能收到互动
