@@ -16,8 +16,18 @@ import { executeAction, executeDecision } from './polyv/executor.ts';
 import { apiRouter } from './routes/api.ts';
 import { sseRouter } from './routes/sse.ts';
 import { webhookRouter } from './routes/webhook.ts';
+import { archiveSession } from './services/session-archive.ts';
 
 const app = express();
+
+// 场次结束自动落盘留档（防止进程重启 / 断网导致复盘数据丢失；同一会话只存一次）
+let archivedSession = '';
+store.subscribe((s) => {
+  if (s.endedAt && s.sessionId && archivedSession !== s.sessionId) {
+    archivedSession = s.sessionId;
+    void archiveSession(store.exportSession());
+  }
+});
 
 app.use(cors({ origin: true, credentials: false }));
 // Polyv 回调可能是 application/json，也可能是 form；两种都收

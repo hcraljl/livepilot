@@ -6,3 +6,6 @@ dist/
 .DS_Store
 coverage/
 *.log
+
+# 场次留档（演示数据，不入库）
+backend/data/
