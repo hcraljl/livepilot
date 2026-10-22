@@ -162,6 +162,11 @@ export class LiveSimulator {
   }
 
   private tick(): void {
+    // 外部（Webhook / REST / 引擎）把场次停掉后，别再往状态里灌数据
+    if (!store.get().running) {
+      this.stop('场次已被外部关闭，模拟器自动退出');
+      return;
+    }
     const dtSec = this.speed * (this.tickMs / 1000);
     this.liveSec += dtSec;
     this.tickCount += 1;

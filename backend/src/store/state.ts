@@ -191,11 +191,14 @@ export class LiveStore {
     const next: Metrics = { ...this.state.metrics, ...patch };
     // 单调递增类指标做护栏，防止模拟器抖回去
     next.totalViewers = Math.max(this.state.metrics.totalViewers, next.totalViewers);
+    // 数据完整性：累计观看人次不可能小于当前在线人数（开场冲人时最容易违反，前端会显示成"观看<在线"）
+    next.totalViewers = Math.max(next.totalViewers, Math.round(next.online));
     next.productClicks = Math.max(this.state.metrics.productClicks, next.productClicks);
     next.orders = Math.max(this.state.metrics.orders, next.orders);
     next.gmv = Math.max(this.state.metrics.gmv, next.gmv);
     next.online = Math.max(0, Math.round(next.online));
     next.danmakuRate = Math.min(1, Math.max(0, next.danmakuRate));
+    next.elapsedMin = Number(next.elapsedMin.toFixed(3));
     this.state.metrics = next;
     this.recomputeFunnel();
     return next;
@@ -241,7 +244,8 @@ export class LiveStore {
   /** 模拟器每 tick 调用：推进时间、写采样点、触发引擎 + 广播 */
   tick(dtSec: number): void {
     const m = this.state.metrics;
-    m.elapsedMin = Math.min(m.totalMin, m.elapsedMin + dtSec / 60);
+    // 保留 3 位小数，避免浮点误差累积成 13.200000000000006 这种脏数字推给前端
+    m.elapsedMin = Number(Math.min(m.totalMin, m.elapsedMin + dtSec / 60).toFixed(3));
     this.pushTimeline({
       t: Number(m.elapsedMin.toFixed(2)),
       online: m.online,
