@@ -1,5 +1,7 @@
 import type {
   AiService,
+  CandidateRankingInput,
+  CandidateRankingResult,
   DecisionExplanation,
   DecisionExplanationInput,
   EngineLogger,
@@ -312,6 +314,44 @@ export function createAiService(config: AiConfig = {}): AiService {
       } catch {
         logger?.warn('LLM 复盘 JSON 解析失败，使用模板兜底');
         return { ...fallback, source: 'template' };
+      }
+    },
+
+    async rankCandidates(
+      input: CandidateRankingInput,
+    ): Promise<CandidateRankingResult | null> {
+      if (!apiKey || input.candidates.length <= 1) return null;
+
+      const content = await chat(
+        [
+          {
+            role: 'system',
+            content:
+              '你是直播运营策略排序器。只能从 candidates 中选择一个 rule，禁止创造新 rule。根据当前指标、场景和触发原因，选择此刻最值得执行的动作。只输出 JSON：{"rule":"<candidate rule>","reason":"一句话中文理由，最多60字，只能引用输入中的数字"}。',
+          },
+          { role: 'user', content: JSON.stringify(input) },
+        ],
+        { timeoutMs: 1500, maxTokens: 220, json: true },
+      );
+      if (!content) return null;
+
+      try {
+        const cleaned = content
+          .replace(/^```(?:json)?/i, '')
+          .replace(/```$/, '')
+          .trim();
+        const parsed = JSON.parse(cleaned) as Partial<CandidateRankingResult>;
+        const rule = typeof parsed.rule === 'string' ? parsed.rule : '';
+        const reason =
+          typeof parsed.reason === 'string'
+            ? clampText(parsed.reason, 82)
+            : '';
+        if (!input.candidates.some((item) => item.rule === rule)) return null;
+        if (!reason || hasInventedNumber(reason, input)) return null;
+        return { rule, reason, source: 'llm' };
+      } catch {
+        logger?.warn('LLM 候选排序 JSON 解析失败，回退规则优先级');
+        return null;
       }
     },
   };

@@ -18,7 +18,12 @@ import { config } from '../config.ts';
 import { store } from '../store/state.ts';
 import { simulator } from '../simulator/simulator.ts';
 import { createAiService } from './ai.ts';
-import type { DecisionExplanationInput, EngineLogger, ReviewNarrativeInput } from './contracts.ts';
+import type {
+  CandidateRankingInput,
+  DecisionExplanationInput,
+  EngineLogger,
+  ReviewNarrativeInput,
+} from './contracts.ts';
 import {
   finalizeNow,
   start,
@@ -174,12 +179,94 @@ async function smokeAi(): Promise<boolean> {
     explanation.source === 'llm' &&
     review.source === 'llm' &&
     guarded.source === 'template';
+
+  const rankInput: CandidateRankingInput = {
+    scenario: 'low_ctr',
+    metrics: {
+      online: 2200,
+      gmv: 18000,
+      orders: 160,
+      danmakuRate: 0.31,
+      elapsedMin: 15.6,
+      remainingMin: 14.4,
+      currentProduct: '手工红糖姜茶礼盒',
+    },
+    candidates: [
+      {
+        rule: 'retention_guard',
+        ruleName: '留存保卫',
+        priority: 100,
+        triggerSummary: '在线人数 8% 下滑',
+        actionLabels: ['无条件抽奖'],
+        expectedEffect: '拉回在线',
+      },
+      {
+        rule: 'conversion_boost',
+        ruleName: '转化助推',
+        priority: 80,
+        triggerSummary: '点击率 0.4% 低于阈值 3%',
+        actionLabels: ['推送商品', '商品福利抽奖'],
+        expectedEffect: '缩短下单路径',
+      },
+    ],
+    recentActions: [],
+  };
+  const rankFetch = (async (): Promise<Response> =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                rule: 'conversion_boost',
+                reason: '点击率低于阈值，优先缩短下单路径。',
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+  const badRankFetch = (async (): Promise<Response> =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                rule: 'made_up_rule',
+                reason: '不存在的规则',
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+
+  const rankAi = createAiService({ apiKey: 'test-key', fetchImpl: rankFetch });
+  const badRankAi = createAiService({
+    apiKey: 'test-key',
+    fetchImpl: badRankFetch,
+  });
+  const ranking = await rankAi.rankCandidates(rankInput);
+  const badRanking = await badRankAi.rankCandidates(rankInput);
+  const rankOk =
+    ranking?.rule === 'conversion_boost' &&
+    ranking.source === 'llm' &&
+    badRanking === null;
+
   console.log(
     ok
       ? 'PASS：LLM 理由解析 / 复盘 JSON / 数字防幻觉兜底'
       : 'FAIL：AI 适配层异常',
   );
-  return ok;
+  console.log(
+    rankOk
+      ? 'PASS：full 档候选重排 + 非法规则回退'
+      : 'FAIL：候选重排异常',
+  );
+  return ok && rankOk;
 }
 
 async function smokeExperience(): Promise<boolean> {
@@ -230,6 +317,15 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const requestedLevel = process.env.HARNESS_AI_LEVEL;
+  if (
+    requestedLevel === 'off' ||
+    requestedLevel === 'hybrid' ||
+    requestedLevel === 'full'
+  ) {
+    store.updateStrategy({ aiLevel: requestedLevel });
+  }
+
   start(
     {
       store,
@@ -240,7 +336,7 @@ async function main(): Promise<void> {
   );
 
   console.log(
-    '开始端到端回放：30 分钟虚拟直播，加速 300x（约 6~10 秒），AI 走模板兜底',
+    `开始端到端回放：30 分钟虚拟直播，加速 300x（约 6~10 秒），智能档位 ${store.get().strategy.aiLevel}，无 key 时走模板`,
   );
   const done = waitForSessionEnd();
   simulator.start({ totalMin: 30, speed: 300, tickMs: 2, seed: 20261024 });

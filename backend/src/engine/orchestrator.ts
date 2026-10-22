@@ -21,6 +21,7 @@ import type {
 import type {
   ActionExecutor,
   AiService,
+  CandidateRankingInput,
   DecisionExplanationInput,
   DecisionInput,
   EngineLogger,
@@ -126,6 +127,8 @@ export function createOrchestrator(
       model: ctx.config.deepseek.model,
       logger,
     });
+  /** off 档专用：无 key 的纯模板服务，保证一次 LLM 调用都不发 */
+  const templateOnlyAi = createAiService({});
   const experienceLibrary =
     options.experienceLibrary ?? getDefaultExperienceLibrary();
   const windowMin = options.windowMin ?? DEFAULT_WINDOW_MIN;
@@ -174,6 +177,7 @@ export function createOrchestrator(
   let finalizePromise: Promise<ReviewReport> | null = null;
   let lastOutcomeCheckMin = -Infinity;
   let retentionSuppressedUntil = 0;
+  let rerankInFlight = false;
   const firedInScenario = new Set<RuleId>();
 
   function resetRuntime(): void {
@@ -191,6 +195,7 @@ export function createOrchestrator(
     lastOutcomeCheckMin = -Infinity;
     lastScenario = null;
     retentionSuppressedUntil = 0;
+    rerankInFlight = false;
     firedInScenario.clear();
   }
 
@@ -275,42 +280,40 @@ export function createOrchestrator(
     };
   }
 
-  function pickCandidate(
+  function eligibleCandidates(
     candidates: RuleCandidate[],
     state: LiveState,
     now: number,
-  ): RuleCandidate | null {
-    if (actionCount >= MAX_ACTIONS_PER_SESSION) return null;
-    if (now - lastActionTs < MIN_ACTION_GAP_SEC * 1000) return null;
+  ): RuleCandidate[] {
+    if (actionCount >= MAX_ACTIONS_PER_SESSION) return [];
+    if (now - lastActionTs < MIN_ACTION_GAP_SEC * 1000) return [];
 
     const scenarioRule = state.scenario
       ? SCENARIO_RULE[state.scenario]
       : undefined;
 
-    for (const candidate of candidates) {
+    return candidates.filter((candidate) => {
       if (
         (ruleFireCounts.get(candidate.rule) ?? 0) >=
         RULE_MAX_PER_SESSION[candidate.rule]
       ) {
-        continue;
+        return false;
       }
       if (
         candidate.rule === 'retention_guard' &&
         now < retentionSuppressedUntil
       ) {
-        continue;
+        return false;
       }
       if (
         scenarioRule === candidate.rule &&
         firedInScenario.has(candidate.rule)
       ) {
-        continue;
+        return false;
       }
       const allowedAt = nextRuleAllowed.get(candidate.dedupeKey) ?? -Infinity;
-      if (now < allowedAt) continue;
-      return candidate;
-    }
-    return null;
+      return now >= allowedAt;
+    });
   }
 
   function buildExplanationInput(
@@ -334,6 +337,84 @@ export function createOrchestrator(
       },
       recentActions: ctxRule.recentActions.slice(-3),
     };
+  }
+
+  function buildRankingInput(
+    candidates: RuleCandidate[],
+    state: LiveState,
+    ctxRule: RuleContext,
+  ): CandidateRankingInput {
+    return {
+      scenario: state.scenario,
+      metrics: {
+        online: Math.round(ctxRule.online),
+        gmv: Math.round(ctxRule.gmv),
+        orders: Math.round(ctxRule.orders),
+        danmakuRate: round1(ctxRule.danmakuRate * 100) / 100,
+        elapsedMin: round1(ctxRule.elapsedSec / 60),
+        remainingMin: Math.max(0, Math.round(ctxRule.remainingSec / 60)),
+        currentProduct: ctxRule.currentProduct,
+      },
+      candidates: candidates.map((candidate) => ({
+        rule: candidate.rule,
+        ruleName: RULE_META[candidate.rule].name,
+        priority: candidate.priority,
+        triggerSummary: candidate.triggerSummary,
+        actionLabels: candidate.actions.map((action) => action.label),
+        expectedEffect: candidate.expectedEffect,
+      })),
+      recentActions: ctxRule.recentActions.slice(-5),
+    };
+  }
+
+  /** full 档：LLM 只在已通过阈值/冷却的候选里选一个，失败立即回退 */
+  function startRerank(
+    candidates: RuleCandidate[],
+    state: LiveState,
+    ctxRule: RuleContext,
+  ): void {
+    const capturedSession = state.sessionId;
+    const capturedLastActionTs = lastActionTs;
+    const input = buildRankingInput(candidates, state, ctxRule);
+    rerankInFlight = true;
+
+    void ai
+      .rankCandidates(input)
+      .then((result) => {
+        if (lastSessionId !== capturedSession) return;
+        if (!store.getState().running) return;
+        if (lastActionTs !== capturedLastActionTs) return;
+        const current = store.getState();
+        if ((current.strategy.aiLevel ?? 'hybrid') !== 'full') return;
+        const chosen =
+          (result &&
+            candidates.find((candidate) => candidate.rule === result.rule)) ??
+          candidates[0];
+        const reasonOverride = result
+          ? { text: result.reason, source: 'llm' as const }
+          : undefined;
+        fire(
+          chosen,
+          current,
+          buildContext(current, virtualNow(current)),
+          reasonOverride,
+        );
+      })
+      .catch((error) => {
+        logger.warn('AI 候选排序失败，回退规则优先级', { error });
+        if (lastSessionId !== capturedSession) return;
+        if (!store.getState().running) return;
+        if (lastActionTs !== capturedLastActionTs) return;
+        const current = store.getState();
+        fire(
+          candidates[0],
+          current,
+          buildContext(current, virtualNow(current)),
+        );
+      })
+      .finally(() => {
+        rerankInFlight = false;
+      });
   }
 
   async function executeOne(decision: Decision): Promise<void> {
@@ -366,14 +447,18 @@ export function createOrchestrator(
     candidate: RuleCandidate,
     state: LiveState,
     ctxRule: RuleContext,
+    reasonOverride?: { text: string; source: 'llm' | 'template' },
   ): void {
     const now = ctxRule.now;
     const groupId = `${state.sessionId || 'live'}-g${++groupSeq}`;
     const mode = state.mode;
+    const aiLevel = state.strategy.aiLevel ?? 'hybrid';
     const selectedActions =
       mode === 'auto' ? candidate.actions : [candidate.actions[0]];
     const explanationInput = buildExplanationInput(candidate, ctxRule);
-    const reason = templateExplain(explanationInput);
+    const reason =
+      reasonOverride?.text ?? templateExplain(explanationInput);
+    const reasonSource = reasonOverride?.source ?? 'template';
 
     const decisions = selectedActions.map((action) =>
       store.addDecision({
@@ -393,7 +478,7 @@ export function createOrchestrator(
         snapshot: { ...state.metrics },
         groupId,
         expectedEffect: candidate.expectedEffect,
-        reasonSource: 'template',
+        reasonSource,
       }),
     );
 
@@ -417,22 +502,24 @@ export function createOrchestrator(
       recentActions.push({ action: action.action, ts: now });
     }
 
-    void ai
-      .explainDecision(explanationInput)
-      .then((result) => {
-        for (const decision of decisions) {
-          store.updateDecision(decision.id, {
-            reason: result.text,
-            reasonSource: result.source,
+    if (!reasonOverride && aiLevel !== 'off') {
+      void ai
+        .explainDecision(explanationInput)
+        .then((result) => {
+          for (const decision of decisions) {
+            store.updateDecision(decision.id, {
+              reason: result.text,
+              reasonSource: result.source,
+            });
+          }
+        })
+        .catch((error) => {
+          logger.warn('决策理由回填失败，保留模板理由', {
+            groupId,
+            error,
           });
-        }
-      })
-      .catch((error) => {
-        logger.warn('决策理由回填失败，保留模板理由', {
-          groupId,
-          error,
         });
-      });
+    }
 
     if (mode === 'auto') {
       for (const decision of decisions) scheduleExecution(decision);
@@ -507,12 +594,20 @@ export function createOrchestrator(
       if (now < WARMUP_SEC * 1000) return;
 
       const ctxRule = buildContext(state, now);
-      const candidate = pickCandidate(
+      const eligible = eligibleCandidates(
         evaluateRules(ctxRule, state.strategy),
         state,
         now,
       );
-      if (candidate) fire(candidate, state, ctxRule);
+      if (eligible.length === 0) return;
+
+      const aiLevel = state.strategy.aiLevel ?? 'hybrid';
+      if (aiLevel === 'full' && eligible.length > 1) {
+        if (rerankInFlight) return;
+        startRerank(eligible, state, ctxRule);
+        return;
+      }
+      fire(eligible[0], state, ctxRule);
     } catch (error) {
       logger.warn('编排器 tick 异常', { error });
     }
@@ -530,9 +625,14 @@ export function createOrchestrator(
       const state = store.getState();
       processOutcomes(state, virtualNow(state), true);
 
+      const reviewState = store.getState();
+      const reviewAi =
+        (reviewState.strategy.aiLevel ?? 'hybrid') === 'off'
+          ? templateOnlyAi
+          : ai;
       const report = await buildReviewReport({
         session: store.exportSession(),
-        ai,
+        ai: reviewAi,
         experienceLibrary,
         logger,
         windowMin,

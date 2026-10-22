@@ -71,8 +71,9 @@
 
 `POST /api/strategy`（局部更新，只传要改的字段）
 ```json
-{ "retentionDropPct": 0.12, "gmvTarget": 150000, "enabled": true }
+{ "aiLevel": "hybrid", "retentionDropPct": 0.12, "gmvTarget": 150000, "enabled": true }
 ```
+`aiLevel` 三档：`off` = 纯规则 + TF-IDF + 模板，零 LLM 调用；`hybrid` = 规则决策 + LLM 解释/复盘（默认）；`full` = LLM 在规则候选内重排，非法输出自动回退规则优先级。
 字段全集见 `shared/types.ts` 的 `StrategyConfig`。返回 `{ ok: true, data: { strategy: {...} } }`。
 
 ### 7. 决策
@@ -240,6 +241,14 @@ interface LiveState {
 - `Decision.groupId / ruleId / expectedEffect / reasonSource / executedElapsedMin / outcome`
 - `Metrics.productCtr`（当前商品点击率，模拟器写入；无数据时缺省）
 - `ReviewReport / AttributionItem / ExperienceEntry / ExperienceMatch / SessionExport` 见 `shared/types.ts`
+
+### 智能档位
+
+`StrategyConfig.aiLevel` 与执行模式（`suggest / semiauto / auto`）正交：
+
+- **off**：规则 + TF-IDF + 模板，完全不调 LLM；动作仍可按执行模式自动落地；
+- **hybrid**：规则决定动作，LLM 异步补理由 + 生成复盘（默认）；
+- **full**：LLM 在已通过阈值/冷却的候选规则内选一个，输出做白名单与数字校验；超时/非法输出自动回退第一条规则，不会发明新动作。
 
 ### 复盘经验库
 

@@ -9,6 +9,9 @@
 /** AI 副驾三档模式：建议 / 半自动（确认执行） / 全自动 */
 export type Mode = 'suggest' | 'semiauto' | 'auto';
 
+/** 智能档位：无 AI / 规则决策 + LLM 文案 / LLM 在候选内重排 */
+export type AiLevel = 'off' | 'hybrid' | 'full';
+
 /** 直播核心指标（看板 6 张卡 + 上下文） */
 export interface Metrics {
   /** 当前在线人数 */
@@ -157,6 +160,8 @@ export interface LiveEvent {
 export interface StrategyConfig {
   /** 总开关：关掉后引擎不再自动决策（人工接管） */
   enabled: boolean;
+  /** 智能档位：off=纯规则+TF-IDF；hybrid=规则决策+LLM 文案；full=LLM 在候选内重排 */
+  aiLevel: AiLevel;
   /** 留存保卫：窗口内在线跌幅阈值（0.15 = 15%） */
   retentionDropPct: number;
   /** 留存保卫：观察窗口（秒） */

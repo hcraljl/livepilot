@@ -45,6 +45,35 @@ export interface DecisionExplanation {
   source: 'llm' | 'template';
 }
 
+/** full 档：LLM 只允许在候选规则内重排，不能发明新动作 */
+export interface CandidateRankingInput {
+  scenario: string | null;
+  metrics: {
+    online: number;
+    gmv: number;
+    orders: number;
+    danmakuRate: number;
+    elapsedMin: number;
+    remainingMin: number;
+    currentProduct: string;
+  };
+  candidates: {
+    rule: string;
+    ruleName: string;
+    priority: number;
+    triggerSummary: string;
+    actionLabels: string[];
+    expectedEffect: string;
+  }[];
+  recentActions: string[];
+}
+
+export interface CandidateRankingResult {
+  rule: string;
+  reason: string;
+  source: 'llm';
+}
+
 export interface ReviewNarrativeInput {
   totalMin: number;
   peakOnline: number;
@@ -87,6 +116,10 @@ export interface AiService {
   readonly enabled: boolean;
   explainDecision(input: DecisionExplanationInput): Promise<DecisionExplanation>;
   generateReview(input: ReviewNarrativeInput): Promise<ReviewNarrativeResult>;
+  /** 返回 null = 无 key / 超时 / 输出不合法，由调用方回退规则优先级 */
+  rankCandidates(
+    input: CandidateRankingInput,
+  ): Promise<CandidateRankingResult | null>;
 }
 
 export interface EngineLogger {

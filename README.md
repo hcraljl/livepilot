@@ -105,6 +105,7 @@ curl http://localhost:4000/api/replay
 ## AI 引擎（成员 C）
 
 - `backend/src/engine/`：5 条规则 + 编排器 + DeepSeek 决策解释（无 key 自动模板兜底）。
+- 智能档位 `aiLevel`：`off`（纯规则 + TF-IDF，零 LLM）/ `hybrid`（规则决策 + LLM 文案，默认）/ `full`（LLM 在候选内重排，非法输出回退规则）。
 - `backend/src/review/`：基于 `store.timeline` 的 3 分钟窗口归因 + 5 段复盘，`/api/replay` 自动接管。
 - `backend/src/experience/`：TF-IDF 复盘经验库，首次运行写入 5 条种子到 `backend/data/experiences.json`；知识库 SOP 用 `source: 'playbook'` 导入。
 - 端到端自测：`npm run engine:demo -w backend`（跑 B 的真实模拟器，mock 掉 Polyv 调用，约 10 秒）。

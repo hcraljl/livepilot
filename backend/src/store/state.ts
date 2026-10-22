@@ -177,6 +177,12 @@ export class LiveStore {
         if (typeof v === 'boolean') next.enabled = v;
         continue;
       }
+      if (key === 'aiLevel') {
+        if (v === 'off' || v === 'hybrid' || v === 'full') {
+          next.aiLevel = v;
+        }
+        continue;
+      }
       const n = Number(v);
       if (Number.isFinite(n)) (next[key] as number) = n;
     }
