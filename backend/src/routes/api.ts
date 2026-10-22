@@ -178,25 +178,35 @@ apiRouter.get('/session/export', (req, res) => {
  * 只暴露官方 method/path/docUrl；B 的内部执行路径/默认参数留在 client.ts，不对外。
  */
 apiRouter.get('/polyv/capabilities', (_req, res) => {
-  const actionOperations = POLYV_API_OPERATIONS.filter(
-    (operation) =>
-      operation.action !== 'stats' && operation.action !== 'webhook',
+  const operationMap = new Map(
+    POLYV_API_OPERATIONS.map((operation) => [operation.action, operation]),
   );
+  // 官方目录（method/path/docUrl）+ 执行层的真实可用状态（资源是否齐备）
+  const runtime = polyvClient.capabilities();
+
   res.json(
     ok({
       useReal: polyvClient.isReal,
       channelId: config.polyv.channelId,
       apiBase: config.polyv.apiBase,
       source: 'official',
-      actions: actionOperations.map(
-        ({ action, label, method, path, docUrl }) => ({
-          action,
-          label,
-          method,
-          path,
-          docUrl,
-        }),
-      ),
+      /** 账号侧资源齐备情况：决定哪些动作在真实模式下真的能打 */
+      resources: runtime.resources,
+      actions: runtime.actions.map((action) => {
+        const operation = operationMap.get(action.action);
+        return {
+          action: action.action,
+          label: operation?.label ?? action.label,
+          method: action.method,
+          path: action.path,
+          docUrl: operation?.docUrl ?? action.docUrl,
+          /** 官方必填的业务/资源参数 */
+          requiredParams: operation?.requiredParams ?? [],
+          /** 真实模式是否可直接执行 */
+          ready: action.ready,
+          missing: action.missing,
+        };
+      }),
       webhook: POLYV_API_OPERATIONS.find(
         (operation) => operation.action === 'webhook',
       )?.path,

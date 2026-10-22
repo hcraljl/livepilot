@@ -1,15 +1,18 @@
 /**
- * 保利威服务端 OpenAPI 封装层（执行层）
+ * 保利威服务端 OpenAPI 执行层
  *
- * 职责：把「AI 决策 → 8 个互动动作」翻译成真实的 Polyv 服务端调用。
- * - 默认 USE_REAL_POLYV=false：走模拟回执，演彩排绝不污染真实频道；
- * - true 且密钥齐备：真实打 channelId 对应频道，观看页（开源 SDK）能立刻收到互动。
- *
- * 安全：本文件是唯一读取 config.polyv.appSecret 的位置（交给 sign.ts 计算签名），
- *      密钥永不出现在返回值、日志、HTTP 响应里。
+ * 设计原则（2026-10-22 按官方文档逐接口核对后重写）：
+ * 1. 路径 / 字段名 / body 编码全部照官方示例，不做「看起来合理」的猜测；
+ * 2. 认证参数 appId/timestamp/sign 只签名「参与签名的参数集」：
+ *      - signScope='query'：业务参数在 body 且不参与签名（coupon / checkin / card-push / lottery）
+ *      - signScope='all'  ：全部字段一起签（notice / question / push-product）
+ * 3. 账号侧资源 ID（questionId / cardPushId / productId / couponIds）缺失时**直接拒绝发送**，
+ *    并返回可执行的修复提示 —— 绝不把脏请求打到真实频道；
+ * 4. appSecret 只在本文件与 sign.ts 之间流动，永不出现在返回值 / 日志 / HTTP 响应里。
  */
 import type { ActionType, PolyvCallResult } from '../../../shared/types.ts';
 import { canUseRealPolyv, config } from '../config.ts';
+import { REAL_SPECS, type BuiltRequest, type ResourceKey } from './endpoints.ts';
 import { signParams } from './sign.ts';
 
 export interface ExecuteOptions {
@@ -17,151 +20,275 @@ export interface ExecuteOptions {
   params?: Record<string, unknown>;
 }
 
-interface EndpointSpec {
-  method: 'POST' | 'GET';
-  path: string;
-  /** 人类可读的动作名（能力清单 / 前端展示用） */
-  label: string;
-  /** 该动作需要的最小参数（缺省时补默认值，避免真实调用报参数错） */
-  defaults?: Record<string, unknown>;
-}
-
-/** 8 个动作 → 保利威服务端接口映射（路径已核对官方文档） */
-export const ACTION_ENDPOINTS: Record<ActionType, EndpointSpec> = {
-  lottery: {
-    method: 'POST',
-    path: '/live/v4/channel/lottery_activity/create',
-    label: '发起抽奖（无条件）',
-    defaults: { lotteryTitle: '福袋抽奖', lotteryDuration: 60 },
-  },
-  welfare_lottery: {
-    method: 'POST',
-    path: '/live/v4/channel/lottery_activity/create',
-    label: '发起福利抽奖（绑定商品条件）',
-    defaults: { lotteryTitle: '下单抽好礼', lotteryDuration: 90, conditionType: 'product' },
-  },
-  answer_card: {
-    method: 'POST',
-    path: '/live/v4/channel/question/send',
-    label: '发起答题卡',
-    defaults: { duration: 60 },
-  },
-  checkin: {
-    method: 'POST',
-    path: '/live/v4/chat/batch-checkin',
-    label: '批量签到',
-    defaults: { checkinDuration: 60 },
-  },
-  push_card: {
-    method: 'POST',
-    path: '/live/v4/channel/card-push/push',
-    label: '推送卡片',
-    defaults: { cardPushType: 'text' },
-  },
-  push_product: {
-    method: 'POST',
-    path: '/live/v3/channel/product/push-product',
-    label: '推送商品弹层',
-    defaults: {},
-  },
-  bulletin: {
-    method: 'POST',
-    path: '/live/v4/chat/add-bullentin',
-    label: '发布公告',
-    defaults: { content: '欢迎来到直播间，下单享专属福利 🎁', duration: 60 },
-  },
-  coupon: {
-    method: 'POST',
-    path: '/live/v4/channel/coupon/create',
-    label: '发放优惠券',
-    defaults: { couponName: '限时立减券', couponValue: 20 },
-  },
+/** 资源缺失时给人看的修复指引 */
+const RESOURCE_HINT: Record<ResourceKey, string> = {
+  questionId: 'POLYV_QUESTION_ID（保利威后台「互动-答题」里创建的答题卡 ID）',
+  cardPushId: 'POLYV_CARD_PUSH_ID（后台「营销-卡片」里推送卡片的数字 ID）',
+  productId: 'POLYV_PRODUCT_ID（后台「商品库」里的商品 ID）',
+  couponIds: 'POLYV_COUPON_IDS（后台「营销-优惠券」里的券 ID，多个用英文逗号分隔）',
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 一次真实请求的构造结果（live-test 也复用，保证「测的就是跑的」） */
+export interface PreparedRequest {
+  action: ActionType;
+  method: 'POST' | 'GET';
+  url: string;
+  bodyKind: BuiltRequest['bodyKind'];
+  /** 实际发送的请求体（已序列化）；none 时为 undefined */
+  bodyText?: string;
+  contentType?: string;
+  /** 已签名参数（含 sign，仅内存可见；打印时会脱敏 sign） */
+  signed: Record<string, string | number>;
+  /** 调试用：脱敏后的请求预览 */
+  preview: string;
+  /** 预览模式下的说明（缺密钥 / 占位符等） */
+  notes: string[];
+}
+
 export class PolyvClient {
-  /** 当前是否真实调用（任一条件不满足自动降级） */
   get isReal(): boolean {
     return canUseRealPolyv();
   }
 
-  /** 能力清单：前端「Polyv 能力」面板直接消费，证明接口真的接上了 */
+  /** 当前账号侧资源齐备情况：真实模式的能力边界一目了然 */
+  resourceStatus() {
+    const r = config.polyv.resources;
+    return {
+      questionId: Boolean(r.questionId),
+      cardPushId: Boolean(r.cardPushId),
+      productId: Boolean(r.productId),
+      couponIds: r.couponIds.length > 0,
+    };
+  }
+
+  /** 能力清单：前端可直接展示「这个动作到底打哪个官方接口、还真能不能打」 */
   capabilities() {
+    const status = this.resourceStatus();
     return {
       useReal: this.isReal,
       channelId: config.polyv.channelId,
       apiBase: config.polyv.apiBase,
-      actions: (Object.keys(ACTION_ENDPOINTS) as ActionType[]).map((action) => ({
-        action,
-        label: ACTION_ENDPOINTS[action].label,
-        method: ACTION_ENDPOINTS[action].method,
-        path: ACTION_ENDPOINTS[action].path,
-      })),
+      actions: (Object.keys(REAL_SPECS) as ActionType[]).map((action) => {
+        const spec = REAL_SPECS[action];
+        const missing = (spec.requires ?? []).filter((k) => !status[k]);
+        return {
+          action,
+          label: spec.label,
+          method: spec.method,
+          path: spec.path,
+          docUrl: spec.docUrl,
+          requires: spec.requires ?? [],
+          /** 真实模式是否可直接执行（资源齐备） */
+          ready: missing.length === 0,
+          missing,
+        };
+      }),
+      resources: status,
       webhook: '/polyv/webhook',
       statsPath: config.polyv.statsPath,
     };
   }
 
   /**
-   * 执行一个动作。
-   * 永远返回结构化回执（不抛异常），让引擎和看板都能继续跑。
+   * 构造真实请求（不发送）。
+   * strict（默认）：缺频道 / 缺资源 / 缺密钥 → 抛错，execute 会转成结构化回执；
+   * tolerant：用占位符拼出请求形状，供 --dry 预览（不会真的发送）。
    */
-  async execute(action: ActionType, opts: ExecuteOptions = {}): Promise<PolyvCallResult> {
-    const spec = ACTION_ENDPOINTS[action];
-    if (!spec) {
-      return { ok: false, mock: !this.isReal, code: 400, message: `未知动作：${action}` };
+  prepare(action: ActionType, opts: ExecuteOptions & { tolerant?: boolean } = {}): PreparedRequest {
+    const spec = REAL_SPECS[action];
+    if (!spec) throw new Error(`未知动作：${action}`);
+    const tolerant = opts.tolerant === true;
+    const notes: string[] = [];
+
+    if (!config.polyv.appId || !config.polyv.appSecret) {
+      if (!tolerant) throw new Error('未配置 POLYV_APP_ID / POLYV_APP_SECRET，无法发起真实调用');
+      notes.push('未签名（缺 appSecret）');
     }
 
-    const channelId = opts.channelId || config.polyv.channelId;
-    const params: Record<string, unknown> = { ...spec.defaults, ...(opts.params ?? {}) };
-    if (channelId) params.channelId = channelId;
+    let channelId = opts.channelId || config.polyv.channelId;
+    if (!channelId) {
+      if (!tolerant) throw new Error('未配置 POLYV_CHANNEL_ID，真实模式下必须先指定频道号');
+      channelId = '<CHANNEL_ID>';
+      notes.push('频道号为占位符');
+    }
 
-    if (!this.isReal) return this.mockExecute(action, spec, params);
+    const status = this.resourceStatus();
+    const resources = {
+      questionId: config.polyv.resources.questionId || '<QUESTION_ID>',
+      cardPushId: config.polyv.resources.cardPushId || '<CARD_PUSH_ID>',
+      productId: config.polyv.resources.productId || '<PRODUCT_ID>',
+      couponIds: config.polyv.resources.couponIds.length
+        ? config.polyv.resources.couponIds
+        : ['<COUPON_ID>'],
+    };
+
+    const missing = (spec.requires ?? []).filter((k) => !status[k]);
+    if (missing.length) {
+      const hint = missing.map((k) => RESOURCE_HINT[k]).join('；');
+      if (!tolerant) {
+        throw new Error(`缺少账号侧资源 ${missing.join(' / ')}（真实模式拒绝发送）。请在 backend/.env 配置：${hint}`);
+      }
+      notes.push(`资源占位：${missing.join(' / ')}`);
+    }
+
+    const built = spec.build({
+      channelId,
+      resources,
+      params: opts.params ?? {},
+    });
+
+    // ---- 决定「谁参与签名、谁放进 URL、谁放进 body」 ----
+    const bodyFields =
+      built.bodyKind === 'form' && built.body && typeof built.body === 'object'
+        ? (built.body as Record<string, string | number>)
+        : {};
+
+    let signBase: Record<string, string | number>;
+    let urlQuery: Record<string, string | number> = {};
+    let bodyText: string | undefined;
+    let contentType: string | undefined;
+
+    if (built.signScope === 'all') {
+      signBase = { ...built.query, ...bodyFields };
+      if (built.bodyKind === 'form') {
+        // 全字段走 form body（官方 push-product / notice 示例就是这种）
+        contentType = 'application/x-www-form-urlencoded;charset=UTF-8';
+        bodyText = undefined; // 签名补完后统一序列化
+      }
+    } else {
+      signBase = { ...built.query };
+    }
+
+    let signed: Record<string, string | number>;
+    try {
+      signed = signParams(signBase) as Record<string, string | number>;
+    } catch (err) {
+      if (!tolerant) throw err;
+      // 预览模式：没有密钥就把原始参数原样列出，sign 留占位
+      signed = { ...signBase, sign: '<SIGN>' };
+    }
+
+    if (built.signScope === 'all') {
+      if (built.bodyKind === 'form') {
+        const form = new URLSearchParams();
+        for (const [k, v] of Object.entries(signed)) form.append(k, String(v));
+        bodyText = form.toString();
+        contentType = 'application/x-www-form-urlencoded;charset=UTF-8';
+      } else {
+        // none：全部塞 URL（notice / question 官方示例即如此）
+        urlQuery = signed;
+      }
+    } else {
+      urlQuery = signed;
+      if (built.bodyKind === 'form') {
+        const form = new URLSearchParams();
+        for (const [k, v] of Object.entries(bodyFields)) form.append(k, String(v));
+        bodyText = form.toString();
+        contentType = 'application/x-www-form-urlencoded;charset=UTF-8';
+      } else if (built.bodyKind === 'json-object' || built.bodyKind === 'json-array') {
+        bodyText = JSON.stringify(built.body);
+        contentType = 'application/json;charset=UTF-8';
+      }
+    }
+
+    const qs = new URLSearchParams(
+      Object.entries(urlQuery).map(([k, v]) => [k, String(v)]),
+    ).toString();
+    const url = `${config.polyv.apiBase}${spec.path}${qs ? `?${qs}` : ''}`;
+
+    const maskedQs = new URLSearchParams(
+      Object.entries(urlQuery).map(([k, v]) => [k, k === 'sign' ? `${String(v).slice(0, 6)}***` : String(v)]),
+    ).toString();
+
+    return {
+      action,
+      method: spec.method,
+      url,
+      bodyKind: built.bodyKind,
+      bodyText,
+      contentType,
+      signed,
+      notes,
+      preview: `${spec.method} ${spec.path}${maskedQs ? `?${maskedQs}` : ''}${
+        bodyText ? ` | body(${built.bodyKind}) ${bodyText.slice(0, 160)}` : ''
+      }${notes.length ? `  ⚠️ ${notes.join('；')}` : ''}`,
+    };
+  }
+
+  /** 执行一个动作：真实模式按官方契约发送；未开启真实模式则走模拟回执 */
+  async execute(action: ActionType, opts: ExecuteOptions = {}): Promise<PolyvCallResult> {
+    if (!REAL_SPECS[action]) {
+      return { ok: false, mock: !this.isReal, code: 400, message: `未知动作：${action}` };
+    }
+    if (!this.isReal) return this.mockExecute(action, opts);
 
     const started = Date.now();
+    const endpoint = `${REAL_SPECS[action].method} ${REAL_SPECS[action].path}`;
+
+    let req: PreparedRequest;
     try {
-      const body = signParams(this.flatten(params));
-      const res = await fetch(`${config.polyv.apiBase}${spec.path}`, {
-        method: spec.method,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: new URLSearchParams(body).toString(),
+      req = this.prepare(action, opts);
+    } catch (err) {
+      // 配置/资源问题：不发送，直接如实返回，前端能看见具体缺什么
+      return {
+        ok: false,
+        mock: false,
+        code: 400,
+        message: (err as Error).message,
+        endpoint,
+        latencyMs: Date.now() - started,
+      };
+    }
+
+    try {
+      const res = await fetch(req.url, {
+        method: req.method,
+        headers: req.contentType ? { 'Content-Type': req.contentType } : undefined,
+        body: req.bodyText,
         signal: AbortSignal.timeout(config.polyv.timeoutMs),
       });
       const json = (await res.json().catch(() => ({}))) as {
         code?: number;
         status?: string;
         message?: string;
+        error?: { code?: number; desc?: string };
         data?: unknown;
       };
       const ok = res.ok && (json.code === 200 || json.status === 'success');
       const result: PolyvCallResult = {
         ok,
         mock: false,
-        code: json.code ?? res.status,
-        message: json.message || (ok ? '保利威已受理' : `HTTP ${res.status}`),
-        endpoint: `${spec.method} ${spec.path}`,
+        code: json.error?.code ?? json.code ?? res.status,
+        message:
+          json.error?.desc ||
+          json.message ||
+          (ok ? '保利威已受理' : `HTTP ${res.status} ${json.status ?? ''}`.trim()),
+        endpoint,
         latencyMs: Date.now() - started,
         data: json.data,
       };
-      if (!ok) console.error(`[polyv] ${spec.path} 失败：`, result.code, result.message);
+      if (!ok) {
+        console.error(`[polyv] ✗ ${endpoint} code=${result.code} ${result.message}`);
+        console.error(`[polyv]   请求预览：${req.preview}`);
+      } else {
+        console.log(`[polyv] ✓ ${endpoint} ${result.latencyMs}ms`);
+      }
       return result;
     } catch (err) {
-      const message = (err as Error).name === 'TimeoutError' ? '保利威接口超时（已降级为本地提示）' : (err as Error).message;
-      console.error(`[polyv] ${spec.path} 异常：`, message);
-      return {
-        ok: false,
-        mock: false,
-        code: -1,
-        message,
-        endpoint: `${spec.method} ${spec.path}`,
-        latencyMs: Date.now() - started,
-      };
+      const message =
+        (err as Error).name === 'TimeoutError'
+          ? `保利威接口超时（>${config.polyv.timeoutMs}ms）`
+          : (err as Error).message;
+      console.error(`[polyv] ✗ ${endpoint} 异常：${message}`);
+      return { ok: false, mock: false, code: -1, message, endpoint, latencyMs: Date.now() - started };
     }
   }
 
-  /** 模拟执行：给演示一个稳定、可讲故事的回执（不产生任何真实副作用） */
-  private async mockExecute(action: ActionType, spec: EndpointSpec, params: Record<string, unknown>): Promise<PolyvCallResult> {
+  /** 模拟执行：演示彩排时用，绝不产生真实副作用 */
+  private async mockExecute(action: ActionType, opts: ExecuteOptions): Promise<PolyvCallResult> {
+    const spec = REAL_SPECS[action];
     const started = Date.now();
     await sleep(40 + Math.floor(Math.random() * 90));
     return {
@@ -171,19 +298,21 @@ export class PolyvClient {
       message: `模拟执行成功：${spec.label}（未调用真实频道）`,
       endpoint: `MOCK ${spec.method} ${spec.path}`,
       latencyMs: Date.now() - started,
-      data: { ...params, simulated: true, action, note: 'USE_REAL_POLYV=false' },
+      data: { ...(opts.params ?? {}), simulated: true, action, note: 'USE_REAL_POLYV=false' },
     };
   }
 
   /**
    * 统计轮询：真实模式下取频道统计，模拟模式返回 undefined（由模拟器供数）。
-   * 说明：统计接口在不同 Polyv API 版本路径略有差异，故路径做成可配置（POLYV_STATS_PATH）。
+   * 路径可配（POLYV_STATS_PATH），不同 API 版本路径有差异。
    */
   async pollStats(channelId = config.polyv.channelId): Promise<Partial<PolyvCallResult> | undefined> {
     if (!this.isReal) return undefined;
     try {
-      const query = signParams({ channelId });
-      const url = `${config.polyv.apiBase}${config.polyv.statsPath}?${new URLSearchParams(query).toString()}`;
+      const query = signParams({ channelId }) as Record<string, string | number>;
+      const url = `${config.polyv.apiBase}${config.polyv.statsPath}?${new URLSearchParams(
+        Object.entries(query).map(([k, v]) => [k, String(v)]),
+      ).toString()}`;
       const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(config.polyv.timeoutMs) });
       const json = (await res.json().catch(() => ({}))) as { code?: number; message?: string; data?: unknown };
       return {
@@ -195,19 +324,14 @@ export class PolyvClient {
         data: json.data,
       };
     } catch (err) {
-      return { ok: false, mock: false, code: -1, message: (err as Error).message, endpoint: `GET ${config.polyv.statsPath}` };
+      return {
+        ok: false,
+        mock: false,
+        code: -1,
+        message: (err as Error).message,
+        endpoint: `GET ${config.polyv.statsPath}`,
+      };
     }
-  }
-
-  /** 表单只接受标量；对象/数组按官方约定序列化 */
-  private flatten(params: Record<string, unknown>): Record<string, string | number | boolean> {
-    const out: Record<string, string | number | boolean> = {};
-    for (const [k, v] of Object.entries(params)) {
-      if (v === null || v === undefined) continue;
-      if (typeof v === 'object') out[k] = JSON.stringify(v);
-      else out[k] = v as string | number | boolean;
-    }
-    return out;
   }
 }
 

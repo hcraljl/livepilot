@@ -39,6 +39,19 @@ export const config = {
     statsPath: str('POLYV_STATS_PATH', '/live/v3/channels/statistics/view'),
     /** 单次请求超时（毫秒），演示现场网络抖动时快速降级 */
     timeoutMs: num('POLYV_TIMEOUT_MS', 6000),
+    /**
+     * 账号侧资源 ID —— 这些不是模型能编出来的，必须来自真实保利威账号后台。
+     * 缺哪个，对应的动作在真实模式下会被拒绝发送（并给出明确提示），不会把脏请求打到频道。
+     */
+    resources: {
+      questionId: str('POLYV_QUESTION_ID'),
+      cardPushId: str('POLYV_CARD_PUSH_ID'),
+      productId: str('POLYV_PRODUCT_ID'),
+      couponIds: str('POLYV_COUPON_IDS')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    },
   },
 
   /**

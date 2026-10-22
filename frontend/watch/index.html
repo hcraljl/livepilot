@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LivePilot · 真实观看页（保利威观看 SDK）</title>
+<style>
+  :root{--bg:#0b1014;--panel:#121a21;--panel2:#0f161c;--line:#1f2c36;--txt:#e8eef3;--dim:#8b9cab;--faint:#5d6f7e;
+    --ai:#4dd0e1;--up:#ff5a5f;--ok:#2fbf71;--warn:#f5b942}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+  .wrap{max-width:1440px;margin:0 auto;padding:18px 22px 40px}
+  header{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#4dd0e1,#2b7fff);display:grid;place-items:center;color:#04141a;font-weight:800}
+  h1{font-size:16px;margin:0}
+  h1 small{display:block;font-size:11px;color:var(--faint);font-weight:400;letter-spacing:.5px}
+  .spacer{flex:1}
+  input,button{font:inherit;color:var(--txt);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;outline:none}
+  input{width:150px}
+  button{cursor:pointer}
+  button:hover{border-color:#31454f}
+  button.primary{background:linear-gradient(135deg,#2b7fff,#4dd0e1);color:#04141a;font-weight:700;border:0}
+  .chip{padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);font-size:12px;color:var(--dim)}
+  .chip.ok{color:#8be3b4;border-color:#1e4430;background:#102019}
+  .chip.err{color:#ffb3b5;border-color:#3a2026;background:#1b1216}
+  .grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;margin-top:16px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .panel>h2{margin:0;padding:10px 14px;font-size:12px;letter-spacing:.6px;color:var(--dim);font-weight:600;
+    border-bottom:1px solid var(--line);background:var(--panel2)}
+  #player{width:100%;aspect-ratio:16/9;background:#000}
+  .stack{display:grid;gap:16px}
+  .log{padding:10px 14px;max-height:300px;overflow:auto;font:12px/1.7 ui-monospace,Consolas,monospace;color:#9fb3c0}
+  .log b{color:var(--ai);font-weight:600}
+  .log .e{color:#ffb3b5}
+  .log .s{color:#8be3b4}
+  .dec{padding:10px 14px;border-bottom:1px solid #17222b;font-size:12.5px}
+  .dec:last-child{border:0}
+  .dec .t{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .tag{font-size:11px;padding:1px 7px;border-radius:6px;background:#182a33;color:var(--ai);border:1px solid #21404b}
+  .tag.rule{background:#241a2b;color:#c79bff;border-color:#3a2a4a}
+  .dec .r{color:var(--dim);font-size:12px;margin-top:3px}
+  .hint{padding:14px;color:var(--faint);font-size:12.5px;line-height:1.7}
+  .hint code{background:#16222b;padding:1px 5px;border-radius:4px;color:#a8c2d1}
+  @media (max-width:1080px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">PV</div>
+    <h1>真实观看页 · 保利威观看 SDK<small>@polyv/live-watch-sdk v2.20.0（官方开源 SDK，CDN UMD 引入）</small></h1>
+    <div class="spacer"></div>
+    <span class="chip" id="sdkChip">SDK 未加载</span>
+    <input id="channelId" placeholder="频道号 channelId" />
+    <input id="nickName" placeholder="观众昵称" value="运营小助手" />
+    <button class="primary" id="btnJoin">加入频道</button>
+  </header>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>直播播放器（真实频道）</h2>
+      <div id="player"></div>
+      <div class="hint" id="playerHint">
+        填入真实频道号后点「加入频道」。播放器将由 <code>watchCore.player.setupPlayer()</code> 创建并拉流，
+        此时 AI 在后台发起的抽奖 / 答题 / 公告 / 推商品 会实时出现在这个真实直播间里。
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="panel">
+        <h2>SDK 运行日志</h2>
+        <div class="log" id="log"><div>[init] 等待 SDK 加载…</div></div>
+      </section>
+      <section class="panel">
+        <h2>AI 决策流（后端推送，与观看页同源）</h2>
+        <div id="decList" style="max-height:280px;overflow:auto"><div class="hint">等待后端 SSE 推送…</div></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="https://websdk.videocc.net/live-watch-sdk/latest/lib/polyv-live-watch-sdk.umd.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const logBox = $('log');
+const log = (msg, cls) => {
+  const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.innerHTML = `<span style="color:#4a5c69">${t}</span> ${msg}`;
+  logBox.appendChild(div);
+  logBox.scrollTop = logBox.scrollHeight;
+};
+
+// ---------- 1. SDK 是否就绪 ----------
+const SDK = window.PolyvLiveWatchSDK;
+if (!SDK) {
+  $('sdkChip').textContent = 'SDK 加载失败';
+  $('sdkChip').className = 'chip err';
+  log('✗ 未取到 window.PolyvLiveWatchSDK，检查 CDN 是否可达', 'e');
+} else {
+  $('sdkChip').textContent = 'SDK 已加载';
+  $('sdkChip').className = 'chip ok';
+  log('✓ <b>@polyv/live-watch-sdk</b> 已加载，导出：' + Object.keys(SDK).slice(0, 12).join(' / '), 's');
+}
+
+// ---------- 2. 加入频道并挂播放器 ----------
+let watchCore = null;
+
+async function join() {
+  if (!SDK) return;
+  if (watchCore) { log('已有实例，先刷新页面再切换频道', 'e'); return; }
+  const channelId = ($('channelId').value || '').trim();
+  if (!channelId) { log('请先填写频道号（保利威后台可见）', 'e'); return; }
+  localStorage.setItem('livepilot.channelId', channelId);
+
+  try {
+    log(`createWatchCore({ channelId: '${channelId}' }) …`);
+    watchCore = SDK.createWatchCore({ channelId });
+    log('✓ 核心实例创建成功');
+
+    // 部分版本由 SDK 内部完成初始化；若暴露了 start / auth，则显式调用
+    if (typeof watchCore.start === 'function') {
+      log('调用 watchCore.start() …');
+      await watchCore.start();
+      log('✓ watchCore.start() 完成', 's');
+    }
+    if (watchCore.auth && typeof watchCore.auth.startAuth === 'function') {
+      log('调用 watchCore.auth.startAuth() …');
+      try { await watchCore.auth.startAuth(); log('✓ 授权完成', 's'); }
+      catch (e) { log('授权未完成（频道可能无需授权）：' + e.message, 'e'); }
+    }
+
+    const container = $('player');
+    container.innerHTML = '';
+    log('player.setupPlayer({ container }) …');
+    await watchCore.player.setupPlayer({ container, autoplay: true });
+    log('✓ 播放器创建完成', 's');
+
+    if (SDK.PlayerEvents) {
+      const on = (evtName) => {
+        const key = SDK.PlayerEvents[evtName];
+        if (key) watchCore.player.eventEmitter.on(key, (payload) => log(`⟨PlayerEvents.${evtName}⟩ ${JSON.stringify(payload).slice(0, 120)}`));
+      };
+      ['PlayerInited', 'VideoPlaying', 'PlayerError'].forEach(on);
+    }
+
+    // 播放信息轮询（证明 SDK 真的在跑）
+    setInterval(() => {
+      try {
+        const info = watchCore.player.getPlayerInfo();
+        $('playerHint').textContent =
+          `播放状态 ${info.playStatus ?? '-'} · 是否无延迟 ${info.isLowLatency ? '是' : '否'} · 初始化 ${info.playerInited ? '完成' : '中'}`;
+      } catch (_) {}
+    }, 3000);
+  } catch (e) {
+    log('✗ 加入频道失败：' + (e && e.message ? e.message : String(e)), 'e');
+    log('常见原因：频道不存在 / 频道开启了观看条件（需 sign） / 浏览器拦截自动播放', 'e');
+  }
+}
+
+$('btnJoin').onclick = join;
+$('channelId').value = localStorage.getItem('livepilot.channelId') || '';
+
+// ---------- 3. 后端 AI 决策流（证明「AI 决策 → 真实 API → 真实观看页」闭环） ----------
+function renderDecisions(state) {
+  const decs = (state.decisions || []).slice().reverse().slice(0, 12);
+  if (!decs.length) return;
+  $('decList').innerHTML = decs.map((d) => `
+    <div class="dec">
+      <div class="t">
+        <span class="tag rule">${d.rule || '规则'}</span>
+        <span class="tag">${d.action}</span>
+        <span style="color:${d.status === 'executed' ? '#2fbf71' : '#f5b942'}">${d.status}</span>
+      </div>
+      <div class="r">${d.reason || ''}</div>
+    </div>`).join('');
+}
+
+function connectSse() {
+  const es = new EventSource('/api/stream');
+  es.onmessage = (e) => { try { renderDecisions(JSON.parse(e.data)); } catch (_) {} };
+  es.onerror = () => { es.close(); setTimeout(connectSse, 2000); };
+}
+connectSse();
+log('已连接 /api/stream，AI 决策会实时出现在右侧');
+</script>
+</body>
+</html>

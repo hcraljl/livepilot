@@ -60,11 +60,18 @@ app.use('/api', apiRouter);
 app.use(sseRouter);
 app.use(webhookRouter);
 
+// 真实观看页（保利威观看 SDK）：源码在 frontend/watch，不进构建，直接静态托管
+const watchDir = path.resolve(process.cwd(), '..', 'frontend', 'watch');
+if (existsSync(watchDir)) {
+  app.use('/watch', express.static(watchDir));
+  console.log(`[server] 真实观看页（观看 SDK）：http://localhost:${config.port}/watch/`);
+}
+
 // 前端构建产物托管（存在才挂载，不影响纯前后端分离开发）
 const distDir = path.resolve(process.cwd(), '..', 'frontend', 'dist');
 if (existsSync(distDir)) {
   app.use(express.static(distDir));
-  app.get(/^\/(?!api|polyv|health).*/, (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
+  app.get(/^\/(?!api|polyv|health|watch).*/, (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
   console.log(`[server] 已托管前端构建产物：${distDir}`);
 }
 
