@@ -15,6 +15,10 @@ import { executeAction, executeDecision } from '../polyv/executor.ts';
 import { buildFallbackReplay } from '../services/replay-fallback.ts';
 import { config } from '../config.ts';
 import { copilotRouter } from './copilot.ts';
+import {
+  POLYV_API_OPERATIONS,
+  POLYV_COMMON_AUTH_PARAMS,
+} from '../polyv/api-catalog.ts';
 
 export const apiRouter = Router();
 
@@ -172,6 +176,16 @@ apiRouter.get('/session/export', (req, res) => {
 /** GET /api/polyv/capabilities —— 保利威能力清单（证明接口真接上了，路演可展示） */
 apiRouter.get('/polyv/capabilities', (_req, res) => {
   res.json(ok(polyvClient.capabilities()));
+});
+
+/** GET /api/polyv/operations —— 官方 API 常量目录（不是经验数据） */
+apiRouter.get('/polyv/operations', (_req, res) => {
+  res.json(
+    ok({
+      auth: POLYV_COMMON_AUTH_PARAMS,
+      operations: POLYV_API_OPERATIONS,
+    }),
+  );
 });
 
 // C 扩展：副驾候选 / 操作选择

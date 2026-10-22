@@ -315,6 +315,11 @@ export interface CopilotActionOption {
   priority: number;
   source: 'review' | 'playbook';
   result?: ExperienceResult;
+  /** 官方 API 常量（来自 polyv/api-catalog.ts，不属于经验数据） */
+  method?: 'GET' | 'POST';
+  path?: string;
+  docUrl?: string;
+  requiredParams?: string[];
 }
 
 export interface CopilotRecommendation {

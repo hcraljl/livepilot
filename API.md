@@ -135,6 +135,15 @@
 - `confirm=true` → 二次确认后调用执行层；动作必须是该经验 `actions` 里的白名单项，否则 400；
 - 返回执行决策与 Polyv 回执（mock/real 可在 `result.mock` 区分）。
 
+### 13. 官方 API 常量目录（C 扩展）
+
+`GET /api/polyv/operations` → `{ ok: true, data: { auth, operations } }`
+
+- `auth`：公共签名参数名（`appId / timestamp / sign`）；
+- `operations`：8 个互动动作 + 统计 + 回调的官方 method / path / 必填参数 / docUrl；
+- 这是**常量目录**，不写入经验库、不参与 TF-IDF；
+- 完整说明见 [`docs/polyv-api.md`](./docs/polyv-api.md)。
+
 ---
 
 ## 二、SSE 实时推送

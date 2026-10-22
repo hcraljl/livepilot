@@ -11,6 +11,7 @@
 import type { ActionType, PolyvCallResult } from '../../../shared/types.ts';
 import { canUseRealPolyv, config } from '../config.ts';
 import { signParams } from './sign.ts';
+import { getPolyvApiOperation } from './api-catalog.ts';
 
 export interface ExecuteOptions {
   channelId?: string;
@@ -26,19 +27,33 @@ interface EndpointSpec {
   defaults?: Record<string, unknown>;
 }
 
-/** 8 个动作 → 保利威服务端接口映射（路径已核对官方文档） */
+/**
+ * 8 个动作 → 官方服务端接口映射（2026-10-22 按 help.polyv.net 核对）
+ * 注意：questionId / cardPushId / productId / couponIds 是账号侧资源 ID，
+ * 由 config 注入；defaults 只放官方参数名，避免再出现 couponName 这类无效字段。
+ */
 export const ACTION_ENDPOINTS: Record<ActionType, EndpointSpec> = {
   lottery: {
     method: 'POST',
-    path: '/live/v4/channel/lottery_activity/create',
+    path: '/live/v4/channel/lottery-activity/create',
     label: '发起抽奖（无条件）',
-    defaults: { lotteryTitle: '福袋抽奖', lotteryDuration: 60 },
+    defaults: {
+      activityName: '在线福利抽奖',
+      lotteryCondition: 'none',
+      amount: 1,
+      prizeName: '品牌定制礼盒',
+    },
   },
   welfare_lottery: {
     method: 'POST',
-    path: '/live/v4/channel/lottery_activity/create',
-    label: '发起福利抽奖（绑定商品条件）',
-    defaults: { lotteryTitle: '下单抽好礼', lotteryDuration: 90, conditionType: 'product' },
+    path: '/live/v4/channel/lottery-activity/create',
+    label: '发起互动福利抽奖',
+    defaults: {
+      activityName: '下单抽好礼',
+      lotteryCondition: 'comment',
+      amount: 1,
+      prizeName: '品牌定制礼盒',
+    },
   },
   answer_card: {
     method: 'POST',
@@ -50,13 +65,13 @@ export const ACTION_ENDPOINTS: Record<ActionType, EndpointSpec> = {
     method: 'POST',
     path: '/live/v4/chat/batch-checkin',
     label: '批量签到',
-    defaults: { checkinDuration: 60 },
+    defaults: { message: '签到领积分' },
   },
   push_card: {
     method: 'POST',
     path: '/live/v4/channel/card-push/push',
     label: '推送卡片',
-    defaults: { cardPushType: 'text' },
+    defaults: {},
   },
   push_product: {
     method: 'POST',
@@ -68,13 +83,13 @@ export const ACTION_ENDPOINTS: Record<ActionType, EndpointSpec> = {
     method: 'POST',
     path: '/live/v4/chat/add-bullentin',
     label: '发布公告',
-    defaults: { content: '欢迎来到直播间，下单享专属福利 🎁', duration: 60 },
+    defaults: { content: '欢迎来到直播间，下单享专属福利 🎁' },
   },
   coupon: {
     method: 'POST',
     path: '/live/v4/channel/coupon/create',
     label: '发放优惠券',
-    defaults: { couponName: '限时立减券', couponValue: 20 },
+    defaults: {},
   },
 };
 
@@ -97,6 +112,7 @@ export class PolyvClient {
         label: ACTION_ENDPOINTS[action].label,
         method: ACTION_ENDPOINTS[action].method,
         path: ACTION_ENDPOINTS[action].path,
+        docUrl: getPolyvApiOperation(action)?.docUrl,
       })),
       webhook: '/polyv/webhook',
       statsPath: config.polyv.statsPath,
@@ -116,6 +132,35 @@ export class PolyvClient {
     const channelId = opts.channelId || config.polyv.channelId;
     const params: Record<string, unknown> = { ...spec.defaults, ...(opts.params ?? {}) };
     if (channelId) params.channelId = channelId;
+
+    // 账号侧资源 ID 只能来自配置，不能被模型编造
+    switch (action) {
+      case 'push_product':
+        if (!params.productId && config.polyv.defaultProductId) {
+          params.productId = config.polyv.defaultProductId;
+        }
+        break;
+      case 'coupon':
+        if (!params.couponIds && config.polyv.defaultCouponIds) {
+          params.couponIds = config.polyv.defaultCouponIds
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+        }
+        break;
+      case 'push_card':
+        if (!params.cardPushId && config.polyv.defaultCardPushId) {
+          params.cardPushId = config.polyv.defaultCardPushId;
+        }
+        break;
+      case 'answer_card':
+        if (!params.questionId && config.polyv.defaultQuestionId) {
+          params.questionId = config.polyv.defaultQuestionId;
+        }
+        break;
+      default:
+        break;
+    }
 
     if (!this.isReal) return this.mockExecute(action, spec, params);
 

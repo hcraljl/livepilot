@@ -109,8 +109,6 @@ export function evaluateRules(
             action: 'bulletin',
             label: '异常安抚公告',
             payload: {
-              title: '直播信号恢复中',
-              bulletin: '直播流正在恢复，请大家稍等片刻，马上回来。',
               content: '直播流正在恢复，请大家稍等片刻，马上回来。',
             },
           },
@@ -140,19 +138,17 @@ export function evaluateRules(
           action: 'lottery',
           label: '无条件抽奖',
           payload: {
-            title: '在线福利抽奖',
-            prize: '品牌定制礼盒',
-            lotteryTitle: '在线福利抽奖',
-            lotteryDuration: 60,
+            activityName: '在线福利抽奖',
+            lotteryCondition: 'none',
+            amount: 1,
+            prizeName: '品牌定制礼盒',
           },
         },
         {
           action: 'push_card',
           label: '卡片召回',
-          payload: {
-            title: '别走，抽奖马上开',
-            text: '留在直播间，30 秒后开奖',
-          },
+          // 官方只接收 cardPushId，由执行层从 POLYV_DEFAULT_CARD_PUSH_ID 注入
+          payload: {},
         },
       ],
       triggerSummary: `在线人数 ${dropPct}% 下滑`,
@@ -176,19 +172,13 @@ export function evaluateRules(
         {
           action: 'coupon',
           label: '限时优惠券',
-          payload: {
-            title: '下播前限时优惠券',
-            couponAmount: 20,
-            couponName: '下播前限时优惠券',
-            couponValue: 20,
-          },
+          // 官方只接收 couponIds，由执行层从 POLYV_DEFAULT_COUPON_IDS 注入
+          payload: {},
         },
         {
           action: 'bulletin',
           label: '逼单公告',
           payload: {
-            title: '最后机会',
-            bulletin: `最后 ${remainingMin} 分钟，下单立减，错过恢复原价。`,
             content: `最后 ${remainingMin} 分钟，下单立减，错过恢复原价。`,
           },
         },
@@ -221,18 +211,17 @@ export function evaluateRules(
         {
           action: 'push_product',
           label: `推送商品：${ctx.currentProduct}`,
-          payload: { productName: ctx.currentProduct },
+          // 官方只接收 productId，由执行层从 POLYV_DEFAULT_PRODUCT_ID 注入
+          payload: {},
         },
         {
           action: 'welfare_lottery',
-          label: '商品福利抽奖',
+          label: '互动福利抽奖',
           payload: {
-            title: `${ctx.currentProduct}专属福利`,
-            productName: ctx.currentProduct,
-            prize: ctx.currentProduct,
-            lotteryTitle: `${ctx.currentProduct}专属福利`,
-            lotteryDuration: 90,
-            conditionType: 'product',
+            activityName: `${ctx.currentProduct}专属福利`,
+            lotteryCondition: 'comment',
+            amount: 1,
+            prizeName: ctx.currentProduct,
           },
         },
       ],
@@ -257,18 +246,13 @@ export function evaluateRules(
       ? {
           action: 'checkin',
           label: '批量签到',
-          payload: {
-            title: '签到打卡',
-            text: '签到领积分，活跃一下公屏',
-          },
+          payload: { message: '签到领积分' },
         }
       : {
           action: 'answer_card',
           label: '互动答题卡',
-          payload: {
-            title: '互动答题',
-            text: '答对即可参与抽奖',
-          },
+          // questionId 由执行层从 POLYV_DEFAULT_QUESTION_ID 注入
+          payload: { duration: 60 },
         };
     candidates.push({
       rule: 'atmosphere_activate',

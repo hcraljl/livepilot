@@ -35,8 +35,13 @@ export const config = {
     userId: str('POLYV_USER_ID'),
     channelId: str('POLYV_CHANNEL_ID'),
     apiBase: str('POLYV_API_BASE', 'https://api.polyv.net').replace(/\/+$/, ''),
-    /** 统计轮询接口路径（不同 API 版本路径有差异，可用环境变量覆盖） */
-    statsPath: str('POLYV_STATS_PATH', '/live/v3/channels/statistics/view'),
+    /** 账号侧资源 ID：真实调用时注入，模型/AI 不得生成这些 ID */
+    defaultProductId: str('POLYV_DEFAULT_PRODUCT_ID'),
+    defaultCouponIds: str('POLYV_DEFAULT_COUPON_IDS'),
+    defaultCardPushId: str('POLYV_DEFAULT_CARD_PUSH_ID'),
+    defaultQuestionId: str('POLYV_DEFAULT_QUESTION_ID'),
+    /** 统计轮询接口路径（官方 v3 get-session-stats，可用环境变量覆盖） */
+    statsPath: str('POLYV_STATS_PATH', '/live/v3/channel/statistics/get-session-stats'),
     /** 单次请求超时（毫秒），演示现场网络抖动时快速降级 */
     timeoutMs: num('POLYV_TIMEOUT_MS', 6000),
   },

@@ -33,6 +33,7 @@ import {
   buildExperienceQuery,
 } from '../experience/query.js';
 import { buildActionPayload } from '../experience/actions.js';
+import { getPolyvApiOperation } from '../polyv/api-catalog.js';
 
 export const copilotRouter = Router();
 
@@ -77,6 +78,7 @@ function buildActionOptions(
       const key = `${experience.id}:${action}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      const operation = getPolyvApiOperation(action);
       options.push({
         experienceId: experience.id,
         experienceTitle: experience.title,
@@ -86,6 +88,10 @@ function buildActionOptions(
         priority: experience.priority,
         source: experience.source,
         result: experience.result,
+        method: operation?.method,
+        path: operation?.path,
+        docUrl: operation?.docUrl,
+        requiredParams: operation?.requiredParams,
       });
     }
   }
@@ -234,6 +240,7 @@ copilotRouter.post('/apply', async (req, res) => {
   const state = store.get();
   const label = ACTION_LABELS[action];
   const payload = buildActionPayload(action, state);
+  const operation = getPolyvApiOperation(action);
 
   if (!confirm) {
     res.json(
@@ -245,6 +252,10 @@ copilotRouter.post('/apply', async (req, res) => {
           action,
           label,
           payload,
+          method: operation?.method,
+          path: operation?.path,
+          docUrl: operation?.docUrl,
+          requiredParams: operation?.requiredParams ?? [],
         },
       }),
     );

@@ -3,6 +3,9 @@ import type { ExperienceEntry } from '../../../shared/types.js';
 /**
  * 首次启动的内置经验，保证空库也能演示“历史经验匹配”。
  * 后续真实复盘会追加到 backend/data/experiences.json，与种子合并使用。
+ *
+ * 边界：官方 API 常量在 backend/src/polyv/api-catalog.ts，不写进本文件/经验库。
+ * 这里只放复盘案例与内部运营 SOP（source: playbook）。
  */
 export const SEED_EXPERIENCES: ExperienceEntry[] = [
   {
