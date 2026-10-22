@@ -7,5 +7,5 @@ dist/
 coverage/
 *.log
 
-# 场次留档（演示数据，不入库）
+# 场次留档 / 复盘经验库（演示数据，不入库）
 backend/data/

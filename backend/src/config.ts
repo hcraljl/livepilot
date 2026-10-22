@@ -67,6 +67,8 @@ export const config = {
   /** 默认策略阈值（前端策略面板可在线覆盖，见 POST /api/strategy） */
   defaultStrategy: {
     enabled: true,
+    aiLevel: 'hybrid',
+    experienceTopK: 5,
     retentionDropPct: 0.15,
     retentionWindowSec: 60,
     conversionCtrThreshold: 0.03,

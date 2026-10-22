@@ -69,6 +69,7 @@ npm run dev:frontend
 npm run typecheck -w backend      # 类型检查，零报错才算完
 npm run sign:selftest -w backend  # 保利威签名算法与官方样例比对（输出 ✅）
 npm run sim:check -w backend      # 无界面跑完整场模拟（约 8 秒），验证指标/场景/事件流
+npm run engine:demo -w backend    # C 侧端到端：真实模拟器 + mock 执行，验证 5 条规则/归因/经验库
 
 # 后端起在 4000 后，另开终端：
 npm run smoke -w backend          # 19 项 HTTP 端到端断言（SSE 首帧 / 动作回执 / 僵尸 tick / 参数校验）
@@ -79,8 +80,9 @@ npm run smoke -w backend          # 19 项 HTTP 端到端断言（SSE 首帧 / �
 - 默认 30 分钟场次、加速 10 倍（1 秒真实时间 = 10 秒直播时间）→ 约 3 分钟跑完，适合演示；
   现场想更快：`POST /api/sim/start {"totalMin":30,"speed":20}`。
 - 随机种子固定（`SIM_SEED=20261024`），**每次演示曲线与场景节点完全一致**，方便反复彩排。
-- 剧本自动安排 4 个场景（留存断崖 / 冷场 / 点击停滞 / 推流抖动）+ 末段自然形成逼单窗口；
+- 剧本自动安排 5 个场景（留存断崖 / 冷场 / 点击停滞 / 末段冲刺 / 推流抖动）；
   现场想"再演一次"可 `POST /api/sim/scenario {"name":"cold_start"}` 手动加戏。
+- 模拟器会对已执行的 AI 动作做出响应（对应场景提前恢复、点击/转化短期抬升），保证复盘能算出动作增量。
 
 ### 真实账号接入（可选）
 
@@ -99,6 +101,19 @@ curl http://localhost:4000/api/state
 curl http://localhost:4000/api/polyv/capabilities
 curl http://localhost:4000/api/replay
 ```
+
+## AI 引擎（成员 C）
+
+- `backend/src/engine/`：5 条规则 + 编排器 + DeepSeek 决策解释（无 key 自动模板兜底）。
+- 智能档位 `aiLevel`：`off`（纯规则 + TF-IDF，零 LLM）/ `hybrid`（规则决策 + LLM 文案，默认）/ `full`（LLM 在候选内重排，非法输出回退规则）。
+- `backend/src/review/`：基于 `store.timeline` 的 3 分钟窗口归因 + 5 段复盘，`/api/replay` 自动接管。
+- `backend/src/experience/`：TF-IDF 复盘经验库，首次运行写入 5 条种子到 `backend/data/experiences.json`；知识库 SOP 用 `source: 'playbook'` 导入。
+- 经验库性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook。
+- 副驾候选：`GET /api/copilot/candidates?topK=5` 返回 TF-IDF TopK 经验与可选动作，人工选择或让 AI 推荐；`POST /api/copilot/apply` 先预览、`confirm=true` 才执行，AI 只能在候选动作白名单内选。
+- 官方 API 常量与经验分离：接口/method/path/必填参数见 [`docs/polyv-api.md`](./docs/polyv-api.md) 和 `backend/src/polyv/api-catalog.ts`，在线 `GET /api/polyv/operations`；官方操作不写入 `backend/data/experiences.json`。
+- 官方全量 488 页文档索引：[`docs/polyv-api-index.md`](./docs/polyv-api-index.md)。公开接口只展示官方 method/path；B 的内部执行路径/默认参数留在 `client.ts`，不对外暴露。
+- 端到端自测：`npm run engine:demo -w backend`（跑 B 的真实模拟器，mock 掉 Polyv 调用，约 10 秒）。
+- 接真实 DeepSeek：`.env` 填 `DEEPSEEK_API_KEY`；不填时决策理由与复盘均走模板，动作链不受影响。
 
 ## 三人协作（git 工作流）
 

@@ -34,6 +34,7 @@ export async function executeDecision(decisionId: string): Promise<ExecuteOutcom
   const updated = store.updateDecision(decision.id, {
     status: result.ok ? 'executed' : 'failed',
     executedAt: Date.now(),
+    executedElapsedMin: store.get().metrics.elapsedMin,
     result,
   }) as Decision;
 

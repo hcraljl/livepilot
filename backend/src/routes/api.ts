@@ -14,6 +14,11 @@ import { polyvClient } from '../polyv/client.ts';
 import { executeAction, executeDecision } from '../polyv/executor.ts';
 import { buildFallbackReplay } from '../services/replay-fallback.ts';
 import { config } from '../config.ts';
+import { copilotRouter } from './copilot.ts';
+import {
+  POLYV_API_OPERATIONS,
+  POLYV_COMMON_AUTH_PARAMS,
+} from '../polyv/api-catalog.ts';
 
 export const apiRouter = Router();
 
@@ -168,7 +173,49 @@ apiRouter.get('/session/export', (req, res) => {
   res.json(payload);
 });
 
-/** GET /api/polyv/capabilities —— 保利威能力清单（证明接口真接上了，路演可展示） */
+/**
+ * GET /api/polyv/capabilities —— 客户可见的官方能力清单
+ * 只暴露官方 method/path/docUrl；B 的内部执行路径/默认参数留在 client.ts，不对外。
+ */
 apiRouter.get('/polyv/capabilities', (_req, res) => {
-  res.json(ok(polyvClient.capabilities()));
+  const actionOperations = POLYV_API_OPERATIONS.filter(
+    (operation) =>
+      operation.action !== 'stats' && operation.action !== 'webhook',
+  );
+  res.json(
+    ok({
+      useReal: polyvClient.isReal,
+      channelId: config.polyv.channelId,
+      apiBase: config.polyv.apiBase,
+      source: 'official',
+      actions: actionOperations.map(
+        ({ action, label, method, path, docUrl }) => ({
+          action,
+          label,
+          method,
+          path,
+          docUrl,
+        }),
+      ),
+      webhook: POLYV_API_OPERATIONS.find(
+        (operation) => operation.action === 'webhook',
+      )?.path,
+      statsPath: POLYV_API_OPERATIONS.find(
+        (operation) => operation.action === 'stats',
+      )?.path,
+    }),
+  );
 });
+
+/** GET /api/polyv/operations —— 官方 API 常量目录（不是经验数据） */
+apiRouter.get('/polyv/operations', (_req, res) => {
+  res.json(
+    ok({
+      auth: POLYV_COMMON_AUTH_PARAMS,
+      operations: POLYV_API_OPERATIONS,
+    }),
+  );
+});
+
+// C 扩展：副驾候选 / 操作选择
+apiRouter.use('/copilot', copilotRouter);

@@ -71,8 +71,9 @@
 
 `POST /api/strategy`（局部更新，只传要改的字段）
 ```json
-{ "retentionDropPct": 0.12, "gmvTarget": 150000, "enabled": true }
+{ "aiLevel": "hybrid", "retentionDropPct": 0.12, "gmvTarget": 150000, "enabled": true }
 ```
+`aiLevel` 三档：`off` = 纯规则 + TF-IDF + 模板，零 LLM 调用；`hybrid` = 规则决策 + LLM 解释/复盘（默认）；`full` = LLM 在规则候选内重排，非法输出自动回退规则优先级。
 字段全集见 `shared/types.ts` 的 `StrategyConfig`。返回 `{ ok: true, data: { strategy: {...} } }`。
 
 ### 7. 决策
@@ -112,6 +113,39 @@
 
 `GET /api/polyv/capabilities` → `{ ok: true, data: { useReal, channelId, apiBase,
    actions: [{ action, label, method, path }], webhook, statsPath } }`
+
+### 12. 副驾候选 / 操作选择（C 扩展）
+
+`GET /api/copilot/candidates?topK=5` → `{ ok: true, data: CopilotCandidatesResp }`
+
+- 用当前指标 + 近期归因生成 query，返回 TF-IDF TopK 历史经验（不是只给一条）；
+- `topK` 可传 1~10，缺省读 `strategy.experienceTopK`（默认 5）；
+- `actions` 是经验里可复用的动作白名单；`recommendation` 是可选 AI 建议：
+  - `aiLevel=off` → 永远 `null`，只给人工选；
+  - `aiLevel=hybrid/full` → LLM 在候选动作里选一个；无 key / 超时 / 非法输出时回退为相似度最高的模板建议；
+- 低价值经验（GMV<300 或订单<5、短场次、单动作）会被过滤，不进入候选。
+
+`POST /api/copilot/apply`
+
+```json
+{ "experienceId": "seed-conversion-1", "action": "push_product", "confirm": false }
+```
+
+- `confirm=false` → 只返回预览（动作、标题、按当前商品实例化的参数），**不执行**；
+- `confirm=true` → 二次确认后调用执行层；动作必须是该经验 `actions` 里的白名单项，否则 400；
+- 返回执行决策与 Polyv 回执（mock/real 可在 `result.mock` 区分）。
+
+### 13. 官方 API 常量目录（C 扩展）
+
+`GET /api/polyv/operations` → `{ ok: true, data: { auth, operations } }`
+
+- `auth`：公共签名参数名（`appId / timestamp / sign`）；
+- `operations`：8 个互动动作 + 统计 + 回调的官方 method / path / 必填参数 / docUrl；
+  - `path` 是**官方公开路径**，客户/前端可见；
+  - B 的内部执行路径与默认参数只留在 `backend/src/polyv/client.ts`，**不通过本接口暴露**；
+- 这是**常量目录**，不写入经验库、不参与 TF-IDF；
+- 完整说明见 [`docs/polyv-api.md`](./docs/polyv-api.md)；
+- 官方全量 488 页文档索引见 [`docs/polyv-api-index.md`](./docs/polyv-api-index.md)。
 
 ---
 
@@ -203,34 +237,55 @@ interface LiveState {
 
 ---
 
-## 五、给成员 C（引擎）的接入约定
+## 五、AI 引擎接入（已实现）
 
-后端已把「状态 + 执行层 + 事件留存」全部备好，引擎只需三件事：
+代码位置：`backend/src/engine/`（规则 + 编排 + DeepSeek）、`backend/src/review/`（归因 + 复盘）、`backend/src/experience/`（TF-IDF 经验库）。
+
+### 自动挂载
+
+`index.ts` 启动时动态 import `engine/orchestrator.ts` 并调用 `start(ctx)`。引擎行为：
+
+- 通过 `store.onTick` + 1s 定时器消费 `LiveState`，阈值 / 冷却统一从 `state.strategy` 读取；
+- 规则硬触发，LLM 只异步补决策理由，**不阻塞动作**；
+- `auto` → `ctx.executeDecision(id)`；`semiauto` → `pending_confirm`；`suggest` → 只记录不执行；
+- 同一次规则触发的多动作共享 `groupId`，自动执行后 3 分钟回算 `Decision.outcome`；
+- 动作全部落地后，`/api/replay` 生成归因复盘并写入经验库。
+
+### `/api/replay`
+
+`review/report.ts` 导出 `generateReport(session, ctx)`，B 的兜底路由会自动让位。返回：
 
 ```ts
-// backend/src/engine/orchestrator.ts
-import type { LiveState } from '../../../shared/types.ts';
-
-export function start(ctx: {
-  store: LiveStore;              // ctx.store.onTick(fn) / ctx.store.addDecision(...)
-  polyvClient: PolyvClient;      // 也可直接用 ctx.executeAction / ctx.executeDecision
-  config: typeof config;
-  executeAction: (action, opts) => Promise<ExecuteOutcome>;
-  executeDecision: (id) => Promise<ExecuteOutcome|undefined>;
-}) {
-  ctx.store.onTick((state: LiveState) => {
-    // 1) 规则判定：读 state.metrics / state.strategy
-    // 2) 生成理由（DeepSeek，失败走模板）
-    // 3) 按 state.mode 落地：
-    //      auto      → ctx.store.addDecision({...status:'suggested'}) 后 await ctx.executeDecision(id)
-    //      semiauto  → status:'pending_confirm'，等前端调 /api/decision/confirm
-    //      suggest   → status:'suggested'，不执行
-  });
+{
+  report: string,                 // 中文复盘文本
+  structured: {
+    summary, keyMetrics, topActions, bestWindow, suggestions,
+    leaderboard,                  // C 扩展：完整归因榜
+    experiences                   // C 扩展：历史相似经验
+  },
+  generatedAt: number,
+  engine: 'ai' | 'template',
+  review: ReviewReport            // C 扩展：完整复盘（timeline + marks + 经验）
 }
 ```
 
-- `store.addDecision()` 会自动打时间轴标记 + 写 `decision` 事件，**不要自己重复写事件**
-- 冷却时间 / 阈值统一从 `state.strategy` 读，运营在前端改完立即生效
-- 复盘时机：`store.subscribe` 里监听 `running === false && endedAt != null`
-- `/api/replay` 会自动尝试 `import('../review/report.ts')`：只要该文件导出
-  `generateReport(session) => ReplayResp | string`，B 的兜底报告即自动让位，**接口无需改动**
+### 引擎新增字段
+
+- `Decision.groupId / ruleId / expectedEffect / reasonSource / executedElapsedMin / outcome`
+- `Metrics.productCtr`（当前商品点击率，模拟器写入；无数据时缺省）
+- `ReviewReport / AttributionItem / ExperienceEntry / ExperienceMatch / SessionExport` 见 `shared/types.ts`
+
+### 智能档位
+
+`StrategyConfig.aiLevel` 与执行模式（`suggest / semiauto / auto`）正交：
+
+- **off**：规则 + TF-IDF + 模板，完全不调 LLM；动作仍可按执行模式自动落地；
+- **hybrid**：规则决定动作，LLM 异步补理由 + 生成复盘（默认）；
+- **full**：LLM 在已通过阈值/冷却的候选规则内选一个，输出做白名单与数字校验；超时/非法输出自动回退第一条规则，不会发明新动作。
+
+### 复盘经验库
+
+- 数据文件：`backend/data/experiences.json`（已 gitignore；首次运行写入 5 条种子）；
+- 检索：零依赖中文分词（`Intl.Segmenter` + CJK bigram + 运营领域词典）→ TF-IDF 余弦相似度 → 历史增量 / 置信度加权优先级；
+- 性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重（IDF 是全局统计，无法完全零全局计算）；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook；
+- 每场复盘自动沉淀；知识库 SOP 用 `source: 'playbook'` 导入，复用同一套检索。
