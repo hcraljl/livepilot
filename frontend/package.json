@@ -1,14 +1,16 @@
 {
   "name": "livepilot-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@livepilot/shared": "*",
     "@polyv/interactions-receive-sdk-ui-default": "^1.29.0",
     "@polyv/live-watch-sdk": "^2.20.0",
     "react": "^18.3.1",
