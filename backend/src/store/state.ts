@@ -22,8 +22,9 @@ import type {
 import { config } from '../config.ts';
 
 const MAX_DECISIONS = 300;
-const MAX_EVENTS = 1200;
-const MAX_TIMELINE = 1200;
+const MAX_EVENTS = 3000;
+/** 30 分钟演示场次在 speed=10/tick=800ms 下约 2250 点，需保留全量供复盘归因 */
+const MAX_TIMELINE = 6000;
 
 export const emptyMetrics = (totalMin: number): Metrics => ({
   online: 0,
@@ -270,19 +271,11 @@ export class LiveStore {
   addDecision(input: Omit<Decision, 'id' | 'ts' | 'channelId'> & Partial<Pick<Decision, 'id' | 'ts' | 'channelId'>>): Decision {
     this.decisionSeq += 1;
     const decision: Decision = {
+      ...input,
       id: input.id ?? `dec_${Date.now().toString(36)}_${this.decisionSeq}`,
       ts: input.ts ?? Date.now(),
       channelId: input.channelId ?? this.state.channelId,
-      rule: input.rule,
-      action: input.action,
-      reason: input.reason,
-      mode: input.mode,
-      status: input.status,
-      title: input.title,
-      payload: input.payload,
       snapshot: input.snapshot ?? { ...this.state.metrics },
-      executedAt: input.executedAt,
-      result: input.result,
     };
     this.state.decisions.push(decision);
     if (this.state.decisions.length > MAX_DECISIONS) {

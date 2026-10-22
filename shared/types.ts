@@ -23,6 +23,8 @@ export interface Metrics {
   gmv: number;
   /** 弹幕 / 互动率 0~1，用于判断冷场 */
   danmakuRate: number;
+  /** 当前商品点击率（点击/曝光），模拟器 / 统计接口写入；无数据时缺省 */
+  productCtr?: number;
   /** 当前讲解商品名 */
   currentProduct: string;
   /** 已播分钟（可为小数） */
@@ -63,8 +65,10 @@ export interface Decision {
   id: string;
   /** 毫秒时间戳 */
   ts: number;
-  /** 触发规则名，如"留存保卫" */
+  /** 触发规则名，如"留存保卫"（前端展示用中文） */
   rule: string;
+  /** 规则内部 id，如 retention_guard（归因 / 经验库用） */
+  ruleId?: string;
   action: ActionType;
   /** LLM / 模板生成的中文决策理由，前端直接渲染 */
   reason: string;
@@ -79,6 +83,25 @@ export interface Decision {
   snapshot?: Partial<Metrics>;
   executedAt?: number;
   result?: PolyvCallResult;
+  /** 同一次规则触发的多个动作共享 groupId，复盘按组归因 */
+  groupId?: string;
+  /** 规则预期效果，前端决策卡展示 */
+  expectedEffect?: string;
+  /** 理由来源：LLM 或模板兜底 */
+  reasonSource?: 'llm' | 'template';
+  /** 执行时的直播进度（分钟），归因窗口起点 */
+  executedElapsedMin?: number;
+  /** 执行后 3 分钟回算的实测增量 */
+  outcome?: DecisionOutcome;
+}
+
+/** 动作执行后的实测增量（决策卡闭环展示） */
+export interface DecisionOutcome {
+  windowSec: number;
+  incrementalOrders: number;
+  incrementalGmv: number;
+  liftPct: number;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 /** 商品转化榜单项 */
@@ -208,6 +231,111 @@ export interface HealthResp {
   uptimeSec: number;
 }
 
+/** 本场完整数据包（store.exportSession()），C 的复盘直接消费 */
+export interface SessionExport {
+  sessionId: string;
+  channelId: string;
+  mode: Mode;
+  source: 'simulator' | 'polyv';
+  startedAt: number | null;
+  endedAt: number | null;
+  durationMin: number;
+  metrics: Metrics;
+  funnel: Funnel;
+  decisions: Decision[];
+  timeline: TimelinePoint[];
+  events: LiveEvent[];
+  products: ProductRank[];
+  strategy: StrategyConfig;
+}
+
+/** 一次 AI 动作组的归因结果（多动作组合共用一个窗口） */
+export interface AttributionItem {
+  /** 组内主决策 id，便于前端跳转 */
+  decisionId: string;
+  groupId: string;
+  rule: string;
+  ruleName: string;
+  title: string;
+  action: ActionType;
+  startMin: number;
+  endMin: number;
+  windowSec: number;
+  windowOrders: number;
+  windowGmv: number;
+  baselineOrders: number;
+  baselineGmv: number;
+  incrementalOrders: number;
+  incrementalGmv: number;
+  liftPct: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+/** 复盘经验库条目：真实复盘 + 知识库 SOP 共用 */
+export interface ExperienceResult {
+  incrementalOrders: number;
+  incrementalGmv: number;
+  liftPct: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface ExperienceEntry {
+  id: string;
+  source: 'review' | 'playbook';
+  createdAt: number;
+  /** 来源场次，避免复盘检索到自己的历史记录 */
+  sessionId?: string;
+  title: string;
+  scenario: string;
+  rules: string[];
+  actions: string[];
+  result?: ExperienceResult;
+  takeaways: string[];
+}
+
+export interface ExperienceMatch extends ExperienceEntry {
+  similarity: number;
+  priority: number;
+}
+
+export interface ReviewMark {
+  t: number;
+  label: string;
+  rule: string;
+  action: ActionType;
+  decisionId: string;
+}
+
+/** C 的完整复盘报告（A 可渲染曲线标记 / 归因榜 / 历史经验） */
+export interface ReviewReport {
+  generatedAt: number;
+  source: 'llm' | 'template';
+  sessionId: string;
+  live: {
+    totalMin: number;
+    peakOnline: number;
+    finalOnline: number;
+    totalViewers: number;
+    finalOrders: number;
+    finalGmv: number;
+    actionCount: number;
+  };
+  overview: string;
+  leaderboard: AttributionItem[];
+  bestWindow: {
+    startMin: number;
+    endMin: number;
+    incrementalGmv: number;
+    label: string;
+  } | null;
+  conclusion: string;
+  suggestions: string[];
+  experiences: ExperienceMatch[];
+  productRanking: ProductRank[];
+  timeline: TimelinePoint[];
+  marks: ReviewMark[];
+}
+
 /** 复盘请求 / 响应（C 的 report.ts 产出，B 的兜底产出结构一致） */
 export interface ReplayResp {
   report: string;
@@ -218,8 +346,13 @@ export interface ReplayResp {
     topActions: { decisionId: string; title: string; rule: string; gmvDelta: number; orderDelta: number }[];
     bestWindow?: { from: number; to: number; note: string };
     suggestions: string[];
+    /** C 扩展：完整归因榜与历史经验，A 可直接渲染 */
+    leaderboard?: AttributionItem[];
+    experiences?: ExperienceMatch[];
   };
   generatedAt: number;
   /** ai = DeepSeek 生成；template = 无 key 模板兜底 */
   engine: 'ai' | 'template';
+  /** C 扩展：完整复盘报告 */
+  review?: ReviewReport;
 }

@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "sign:selftest": "tsx src/polyv/sign.ts --selftest",
     "sim:check": "tsx src/scripts/sim-check.ts",
-    "smoke": "tsx src/scripts/smoke.ts"
+    "smoke": "tsx src/scripts/smoke.ts",
+    "engine:demo": "tsx src/engine/harness.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

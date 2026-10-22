@@ -203,34 +203,46 @@ interface LiveState {
 
 ---
 
-## 五、给成员 C（引擎）的接入约定
+## 五、AI 引擎接入（已实现）
 
-后端已把「状态 + 执行层 + 事件留存」全部备好，引擎只需三件事：
+代码位置：`backend/src/engine/`（规则 + 编排 + DeepSeek）、`backend/src/review/`（归因 + 复盘）、`backend/src/experience/`（TF-IDF 经验库）。
+
+### 自动挂载
+
+`index.ts` 启动时动态 import `engine/orchestrator.ts` 并调用 `start(ctx)`。引擎行为：
+
+- 通过 `store.onTick` + 1s 定时器消费 `LiveState`，阈值 / 冷却统一从 `state.strategy` 读取；
+- 规则硬触发，LLM 只异步补决策理由，**不阻塞动作**；
+- `auto` → `ctx.executeDecision(id)`；`semiauto` → `pending_confirm`；`suggest` → 只记录不执行；
+- 同一次规则触发的多动作共享 `groupId`，自动执行后 3 分钟回算 `Decision.outcome`；
+- 动作全部落地后，`/api/replay` 生成归因复盘并写入经验库。
+
+### `/api/replay`
+
+`review/report.ts` 导出 `generateReport(session, ctx)`，B 的兜底路由会自动让位。返回：
 
 ```ts
-// backend/src/engine/orchestrator.ts
-import type { LiveState } from '../../../shared/types.ts';
-
-export function start(ctx: {
-  store: LiveStore;              // ctx.store.onTick(fn) / ctx.store.addDecision(...)
-  polyvClient: PolyvClient;      // 也可直接用 ctx.executeAction / ctx.executeDecision
-  config: typeof config;
-  executeAction: (action, opts) => Promise<ExecuteOutcome>;
-  executeDecision: (id) => Promise<ExecuteOutcome|undefined>;
-}) {
-  ctx.store.onTick((state: LiveState) => {
-    // 1) 规则判定：读 state.metrics / state.strategy
-    // 2) 生成理由（DeepSeek，失败走模板）
-    // 3) 按 state.mode 落地：
-    //      auto      → ctx.store.addDecision({...status:'suggested'}) 后 await ctx.executeDecision(id)
-    //      semiauto  → status:'pending_confirm'，等前端调 /api/decision/confirm
-    //      suggest   → status:'suggested'，不执行
-  });
+{
+  report: string,                 // 中文复盘文本
+  structured: {
+    summary, keyMetrics, topActions, bestWindow, suggestions,
+    leaderboard,                  // C 扩展：完整归因榜
+    experiences                   // C 扩展：历史相似经验
+  },
+  generatedAt: number,
+  engine: 'ai' | 'template',
+  review: ReviewReport            // C 扩展：完整复盘（timeline + marks + 经验）
 }
 ```
 
-- `store.addDecision()` 会自动打时间轴标记 + 写 `decision` 事件，**不要自己重复写事件**
-- 冷却时间 / 阈值统一从 `state.strategy` 读，运营在前端改完立即生效
-- 复盘时机：`store.subscribe` 里监听 `running === false && endedAt != null`
-- `/api/replay` 会自动尝试 `import('../review/report.ts')`：只要该文件导出
-  `generateReport(session) => ReplayResp | string`，B 的兜底报告即自动让位，**接口无需改动**
+### 引擎新增字段
+
+- `Decision.groupId / ruleId / expectedEffect / reasonSource / executedElapsedMin / outcome`
+- `Metrics.productCtr`（当前商品点击率，模拟器写入；无数据时缺省）
+- `ReviewReport / AttributionItem / ExperienceEntry / ExperienceMatch / SessionExport` 见 `shared/types.ts`
+
+### 复盘经验库
+
+- 数据文件：`backend/data/experiences.json`（已 gitignore；首次运行写入 5 条种子）；
+- 检索：零依赖中文分词（`Intl.Segmenter` + CJK bigram + 运营领域词典）→ TF-IDF 余弦相似度 → 历史增量 / 置信度加权优先级；
+- 每场复盘自动沉淀；知识库 SOP 用 `source: 'playbook'` 导入，复用同一套检索。

@@ -73,6 +73,18 @@ export class LiveSimulator {
   private tickCount = 0;
   /** 小数累加器：单 tick 的点击/下单可能不足 1，直接取整会让 GMV 恒为 0（加速演示时尤其明显） */
   private acc = { viewers: 0, clicks: 0, orders: 0, gmv: 0 };
+  /**
+   * AI 动作效果：模拟器对已执行动作做出响应（在线回升 / 点击回升 / 转化上浮），
+   * 让演示形成"AI 动作 → 指标回升 → 复盘增量"的闭环，而不是动作与数据两条平行线。
+   */
+  private handledDecisions = new Set<string>();
+  private actionEffect: {
+    untilSec: number;
+    onlineMul: number;
+    ctrMul: number;
+    convAdd: number;
+    danmakuAdd: number;
+  } | null = null;
 
   get running(): boolean {
     return this.timer !== null;
@@ -95,6 +107,8 @@ export class LiveSimulator {
     this.lastMetricLogSec = 0;
     this.ranks.clear();
     this.acc = { viewers: 0, clicks: 0, orders: 0, gmv: 0 };
+    this.handledDecisions.clear();
+    this.actionEffect = null;
     for (const p of PRODUCTS) this.ranks.set(p.name, { name: p.name, clicks: 0, orders: 0, gmv: 0 });
 
     this.beats = this.buildBeats(this.totalMin);
@@ -137,6 +151,12 @@ export class LiveSimulator {
       { atMin: totalMin * 0.3, name: 'cold_start', durationSec: Math.max(45, totalMin * 2.6) },
       { atMin: totalMin * 0.52, name: 'low_ctr', durationSec: Math.max(60, totalMin * 3.2) },
       { atMin: totalMin * 0.82, name: 'stream_stall', durationSec: Math.max(25, totalMin * 1.2) },
+      // 末段冲刺：B 已写好 endgame 分支，但原剧本漏排；没有它，自然流量下滑会吃掉逼单增量
+      {
+        atMin: Math.max(0, totalMin - config.defaultStrategy.pushWindowMin),
+        name: 'endgame',
+        durationSec: config.defaultStrategy.pushWindowMin * 60,
+      },
     ];
   }
 
@@ -149,6 +169,101 @@ export class LiveSimulator {
       if (elapsedMin >= b.atMin && elapsedMin < b.atMin + durationMin) return b.name;
     }
     return null;
+  }
+
+  /** 扫描新执行的 AI 动作，设置指标增益 + 对应场景提前恢复 */
+  private scanActionEffects(elapsedMin: number): void {
+    const current = this.currentScenario(elapsedMin);
+    for (const decision of store.get().decisions) {
+      if (decision.status !== 'executed') continue;
+      if (this.handledDecisions.has(decision.id)) continue;
+      this.handledDecisions.add(decision.id);
+
+      const action = decision.action;
+      let effect:
+        | {
+            onlineMul: number;
+            ctrMul: number;
+            convAdd: number;
+            danmakuAdd: number;
+            relief?: ScenarioName;
+          }
+        | null = null;
+
+      if (action === 'lottery' || action === 'push_card') {
+        effect = {
+          onlineMul: 1.06,
+          ctrMul: 1.15,
+          convAdd: 0.01,
+          danmakuAdd: 0.08,
+          relief: 'online_drop',
+        };
+      } else if (action === 'push_product' || action === 'welfare_lottery') {
+        effect = {
+          onlineMul: 1.02,
+          ctrMul: 2.4,
+          convAdd: 0.03,
+          danmakuAdd: 0.05,
+          relief: 'low_ctr',
+        };
+      } else if (action === 'answer_card' || action === 'checkin') {
+        effect = {
+          onlineMul: 1.02,
+          ctrMul: 1.2,
+          convAdd: 0.02,
+          danmakuAdd: 0.15,
+          relief: 'cold_start',
+        };
+      } else if (action === 'coupon') {
+        effect = {
+          onlineMul: 1.03,
+          ctrMul: 1.3,
+          convAdd: 0.05,
+          danmakuAdd: 0.05,
+        };
+      } else if (action === 'bulletin') {
+        effect = {
+          onlineMul: 1.01,
+          ctrMul: 1,
+          convAdd: 0,
+          danmakuAdd: 0.02,
+          relief: current === 'stream_stall' ? 'stream_stall' : undefined,
+        };
+      }
+      if (!effect) continue;
+
+      const untilSec = this.liveSec + 90;
+      if (this.actionEffect && this.actionEffect.untilSec > this.liveSec) {
+        this.actionEffect = {
+          untilSec: Math.max(this.actionEffect.untilSec, untilSec),
+          onlineMul: Math.max(this.actionEffect.onlineMul, effect.onlineMul),
+          ctrMul: Math.max(this.actionEffect.ctrMul, effect.ctrMul),
+          convAdd: Math.max(this.actionEffect.convAdd, effect.convAdd),
+          danmakuAdd: Math.max(this.actionEffect.danmakuAdd, effect.danmakuAdd),
+        };
+      } else {
+        this.actionEffect = {
+          untilSec,
+          onlineMul: effect.onlineMul,
+          ctrMul: effect.ctrMul,
+          convAdd: effect.convAdd,
+          danmakuAdd: effect.danmakuAdd,
+        };
+      }
+
+      if (effect.relief && current === effect.relief) {
+        // 直接从剧本里移除该场景，保证动作生效后不会在场景尾部"复活"
+        this.beats = this.beats.filter(
+          (item) => item.name !== effect.relief,
+        );
+        if (this.manual?.name === effect.relief) this.manual = null;
+        store.logEvent(
+          'system',
+          `AI 动作生效：${decision.title ?? decision.action}`,
+          `场景 ${effect.relief} 提前恢复`,
+        );
+      }
+    }
   }
 
   /** 基础在线人数曲线（无场景干扰时） */
@@ -173,7 +288,12 @@ export class LiveSimulator {
 
     const m = store.get().metrics;
     const elapsedMin = m.elapsedMin;
+    this.scanActionEffects(elapsedMin);
     const scenario = this.currentScenario(elapsedMin);
+    const activeEffect =
+      this.actionEffect && this.liveSec < this.actionEffect.untilSec
+        ? this.actionEffect
+        : null;
 
     if (scenario !== this.activeLabel) {
       this.activeLabel = scenario;
@@ -185,6 +305,7 @@ export class LiveSimulator {
     if (scenario === 'online_drop') target *= 0.74;
     if (scenario === 'stream_stall') target *= 0.9;
     if (scenario === 'endgame') target *= 1.06;
+    if (activeEffect) target *= activeEffect.onlineMul;
     const noise = 1 + (this.rand() - 0.5) * 0.05;
     const online = m.online + (target - m.online) * 0.28;
     const nextOnline = Math.max(30, Math.round(online * noise));
@@ -199,6 +320,7 @@ export class LiveSimulator {
     if (scenario === 'cold_start') danmakuRate = 0.03 + this.rand() * 0.03;
     if (scenario === 'stream_stall') danmakuRate = 0.01;
     if (scenario === 'endgame') danmakuRate = Math.min(0.85, danmakuRate + 0.2);
+    if (activeEffect) danmakuRate += activeEffect.danmakuAdd;
     danmakuRate = Math.min(0.95, Math.max(0.01, danmakuRate));
 
     // ---- 商品点击：随讲解节奏波动，low_ctr 场景断崖 ----
@@ -206,10 +328,12 @@ export class LiveSimulator {
     let ctr = baseCtr;
     if (scenario === 'low_ctr') ctr = 0.004;
     if (scenario === 'endgame') ctr = baseCtr * 1.7;
+    if (activeEffect) ctr = Math.min(0.6, ctr * activeEffect.ctrMul);
     const clicksF = ((nextOnline * ctr * dtSec) / 60) * (0.8 + this.rand() * 0.5);
 
     // ---- 下单：点击转化率随互动热度上浮（互动越热，转化越好，这是复盘归因的故事基础） ----
-    const conv = 0.055 + danmakuRate * 0.14 + (scenario === 'endgame' ? 0.06 : 0);
+    let conv = 0.055 + danmakuRate * 0.14 + (scenario === 'endgame' ? 0.06 : 0);
+    if (activeEffect) conv += activeEffect.convAdd;
     const product = PRODUCTS[this.productIndex];
 
     this.acc.clicks += clicksF;
@@ -240,6 +364,7 @@ export class LiveSimulator {
       orders: m.orders + orders,
       gmv: m.gmv + gmv,
       danmakuRate: Number(danmakuRate.toFixed(3)),
+      productCtr: Number(ctr.toFixed(4)),
       currentProduct: PRODUCTS[this.productIndex].name,
     });
 
