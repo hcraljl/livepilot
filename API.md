@@ -1,89 +1,236 @@
 # API 契约（前后端并行开发依据）
 
-后端基础地址：`http://localhost:4000`，前端 Vite 已代理 `/api` → 后端。
-
-## REST
-
-### GET /api/state
-返回完整 `LiveState`（见下方类型）。
-
-### POST /api/sim/start
-请求体：`{ "totalMin": 30 }`
-开始直播模拟器，返回 `{ "ok": true }`。
-
-### POST /api/sim/stop
-停止模拟器，返回 `{ "ok": true }`。
-
-### POST /api/mode
-请求体：`{ "mode": "suggest" | "semiauto" | "auto" }`
-切换 AI 副驾模式，返回 `{ "ok": true, "mode": "..." }`。
-
-### POST /api/decision/confirm
-请求体：`{ "id": "<decisionId>" }`
-半自动模式下，确认执行某条待确认决策。
-
-### GET /api/replay
-返回 `{ "report": "<AI 生成的复盘文本>" }`。
-
-### GET /health
-健康检查：`{ "ok": true, "useReal": false }`。
-
-## SSE（实时推送）
-
-### GET /api/stream
-`text/event-stream`，每次状态/决策变化推送一帧完整 `LiveState` JSON：
-```
-data: { ...LiveState... }
-
-```
-
-前端用 `EventSource('/api/stream')` 订阅。
-
-## Webhook（真实账号接入时）
-
-### POST /polyv/webhook
-保利威事件回调（开播/结束/录制/互动等）。接入真实账号时在此验签并映射到 `state.metrics`，替代模拟器。当前为占位，需按官方算法严格验签。
+> 维护：**成员 B（后端 / 集成）**。任何字段调整必须先改本文件 + `shared/types.ts`，再通知 A / C。
+> 后端基础地址：`http://localhost:4000`；前端 Vite 已代理 `/api` → 后端。
+> 统一响应壳：成功 `{ ok: true, data: ... }`，失败 `{ ok: false, error: "...", code: 400 }`。
+> 例外：`GET /api/state`、`GET /api/stream`、`GET /api/replay` 直接返回业务对象本身（见下）。
 
 ---
 
-## 数据结构（TypeScript）
+## 一、REST 接口清单
+
+| 方法 | 路径 | 说明 | 主要消费方 |
+| --- | --- | --- | --- |
+| GET | `/health`（含 `/api/health`） | 健康检查 | 前端启动探活 |
+| GET | `/api/state` | 完整 `LiveState`（首屏兜底） | A |
+| GET | `/api/stream` | SSE 实时推送，见第二节 | A |
+| POST | `/api/sim/start` | 启动模拟器 | A 的「开始直播」按钮 |
+| POST | `/api/sim/stop` | 停止模拟器 | A |
+| POST | `/api/sim/scenario` | 现场手动加戏 | A / 演示控制台 |
+| POST | `/api/mode` | 切换建议 / 半自动 / 全自动 | A 的策略面板 |
+| POST | `/api/strategy` | 更新策略阈值 | A 的策略面板 |
+| GET | `/api/decisions` | 决策列表（可按状态过滤） | A / C |
+| POST | `/api/decision/confirm` | 半自动：确认执行某条决策 | A |
+| POST | `/api/action` | 手动触发一个互动动作 | A（运营手点） |
+| GET | `/api/events` | 事件流（`since` / `type` 过滤） | A 时间轴 / C 复盘 |
+| GET | `/api/replay` | 一键复盘（AI 优先，缺位走兜底） | A 复盘页 |
+| GET | `/api/session/export` | 本场全量数据导出（`?download=1` 触发下载） | C / 留档 |
+| GET | `/api/polyv/capabilities` | 保利威能力清单（8 个动作 + 接口路径 + 是否真实模式） | 路演展示 |
+| POST | `/polyv/webhook` | 保利威回调接收（验签） | 保利威服务器 |
+
+### 1. 健康检查
+
+`GET /health` →
+```json
+{ "ok": true, "useReal": false, "running": false, "mode": "auto",
+  "source": "simulator", "sessionId": "", "uptimeSec": 12 }
+```
+
+### 2. 状态
+
+`GET /api/state` → 完整 `LiveState`（结构见第四节）。前端首屏先拉它，随后的变更都从 SSE 来。
+
+### 3. 启动 / 停止模拟器
+
+`POST /api/sim/start`
+```json
+{ "totalMin": 30, "speed": 10, "seed": 20261024 }
+```
+- `totalMin` 计划时长（分钟，默认 30）
+- `speed` 加速倍数：1 秒真实时间 = `speed` 秒直播时间（默认 10 → 30 分钟场次约 3 分钟跑完，演示可传 20 更快）
+- `seed` 随机种子（固定则每次曲线、场景节点完全一致，**演示必须固定**）
+
+返回：启动瞬间的 `LiveState`（`data` 内）。
+`POST /api/sim/stop` → `{ "ok": true, "data": { "running": false } }`
+
+### 4. 现场加戏（可选）
+
+`POST /api/sim/scenario`
+```json
+{ "name": "cold_start" }
+```
+`name` ∈ `online_drop` | `cold_start` | `low_ctr` | `endgame` | `stream_stall`
+> 剧本已自动排在这些节点，本接口用于评审现场"再演一次"。
+> 未运行模拟器时返回 409。
+
+### 5. 模式切换
+
+`POST /api/mode` `{ "mode": "suggest" | "semiauto" | "auto" }` → `{ "ok": true, "data": { "mode": "auto" } }`
+
+### 6. 策略阈值
+
+`POST /api/strategy`（局部更新，只传要改的字段）
+```json
+{ "retentionDropPct": 0.12, "gmvTarget": 150000, "enabled": true }
+```
+字段全集见 `shared/types.ts` 的 `StrategyConfig`。返回 `{ ok: true, data: { strategy: {...} } }`。
+
+### 7. 决策
+
+`GET /api/decisions?status=pending_confirm` → `{ ok: true, data: Decision[] }`
+
+`POST /api/decision/confirm` `{ "id": "dec_xxx" }`
+→ `{ "ok": true, "data": { "decision": {...}, "result": { "ok": true, "mock": true, "code": 200, "message": "...", "endpoint": "MOCK POST /live/v4/..." } } }`
+> 半自动模式下，引擎产出 `pending_confirm` 决策，运营点「执行」调这里；全自动模式由引擎自己调执行层，不需要前端参与。
+
+### 8. 手动动作（演示"人点一下"）
+
+`POST /api/action`
+```json
+{ "action": "coupon", "title": "运营手动发券", "params": { "couponValue": 30 } }
+```
+`action` ∈ `lottery` | `welfare_lottery` | `answer_card` | `checkin` | `push_card` | `push_product` | `bulletin` | `coupon`
+返回同 `decision/confirm`。
+
+### 9. 事件流
+
+`GET /api/events?since=1690000000000&type=decision` → `{ ok: true, data: LiveEvent[] }`
+`type` ∈ `session` | `metric` | `scenario` | `decision` | `action` | `webhook` | `system`
+
+### 10. 复盘
+
+`GET /api/replay` → `ReplayResp`
+```json
+{ "report": "【本场关键指标】...", "generatedAt": 1690000000000, "engine": "template",
+  "structured": { "summary": "...", "keyMetrics": {...}, "topActions": [...],
+                  "bestWindow": {...}, "suggestions": ["..."] } }
+```
+- `engine`: `ai`（DeepSeek 生成的正式版）| `template`（B 的兜底版）
+- 前端只需渲染 `report` 文本 + `structured`（有则画图）
+
+### 11. 能力清单
+
+`GET /api/polyv/capabilities` → `{ ok: true, data: { useReal, channelId, apiBase,
+   actions: [{ action, label, method, path }], webhook, statsPath } }`
+
+---
+
+## 二、SSE 实时推送
+
+`GET /api/stream` → `text/event-stream`，**每次推送一帧完整 `LiveState` JSON**：
+
+```
+retry: 3000
+
+data: {"running":true,"mode":"auto","metrics":{...},"decisions":[...],...}
+
+```
+
+- 连接建立后立即推一帧，不用等第一次变更
+- 服务端节流 200ms；15 秒一次 `: ping` 心跳（防代理断连）
+- 前端用法：
+```ts
+const es = new EventSource('http://localhost:4000/api/stream');
+es.onmessage = (e) => setState(JSON.parse(e.data));
+```
+
+---
+
+## 三、Webhook（真实账号接入）
+
+`POST /polyv/webhook`：保利威事件回调，用同一套签名算法验签（`sign` 在 body 或 query）。
+识别字段宽容匹配 `event` / `type` / `eventType`：含 `start` → 开播、含 `end`/`stop` → 下播、含 `record` → 录制完成、含 `online`/`viewer` → 在线数据。
+无法识别的事件原样写入事件流（`type: "webhook"`），不会覆盖状态。
+> 演示默认走模拟器；只有 `USE_REAL_POLYV=true` 且配好密钥时才需要它。
+
+---
+
+## 四、数据结构（与 `shared/types.ts` 一一对应）
 
 ```ts
 type Mode = 'suggest' | 'semiauto' | 'auto';
 
 interface Metrics {
-  online: number;          // 在线人数
+  online: number;          // 当前在线
   totalViewers: number;    // 累计观看
-  productClicks: number;   // 商品点击
+  productClicks: number;   // 商品点击数
   orders: number;          // 下单数
   gmv: number;             // 成交金额
-  danmakuRate: number;     // 弹幕/互动率 0~1
+  danmakuRate: number;     // 弹幕 / 互动率 0~1
   currentProduct: string;  // 当前讲解商品
   elapsedMin: number;      // 已播分钟
-  totalMin: number;        // 总时长
+  totalMin: number;        // 计划总时长
 }
 
-type ActionType =
-  | 'lottery' | 'welfare_lottery' | 'answer_card' | 'checkin'
-  | 'push_card' | 'push_product' | 'bulletin' | 'coupon';
+type ActionType = 'lottery' | 'welfare_lottery' | 'answer_card' | 'checkin'
+                | 'push_card' | 'push_product' | 'bulletin' | 'coupon';
 
 interface Decision {
   id: string;
   ts: number;
-  rule: string;            // 触发规则名
+  rule: string;                 // 触发规则名
   action: ActionType;
-  reason: string;          // AI 生成的理由
+  reason: string;               // AI / 模板生成的中文理由
   mode: Mode;
-  status: 'suggested' | 'executed' | 'pending_confirm';
+  status: 'suggested' | 'pending_confirm' | 'executed' | 'failed';
   channelId: string;
+  title?: string;
+  payload?: Record<string, unknown>;
+  snapshot?: Partial<Metrics>;  // 决策时刻指标快照（归因用）
+  executedAt?: number;
+  result?: PolyvCallResult;     // { ok, mock, code, message, endpoint, latencyMs }
 }
 
 interface LiveState {
   running: boolean;
   mode: Mode;
+  channelId: string;
+  sessionId: string;
+  startedAt: number | null;
+  endedAt: number | null;
   metrics: Metrics;
   decisions: Decision[];
   funnel: { view: number; interact: number; click: number; order: number };
-  productRanking: { name: string; clicks: number; orders: number }[];
+  productRanking: { name: string; clicks: number; orders: number; gmv: number }[];
+  timeline: { t: number; online: number; gmv: number; orders: number; danmakuRate: number; marked?: boolean }[];
+  events: LiveEvent[];
+  strategy: StrategyConfig;
+  scenario: string | null;      // 当前生效的模拟场景
+  source: 'simulator' | 'polyv';
+  updatedAt: number;
 }
 ```
+
+---
+
+## 五、给成员 C（引擎）的接入约定
+
+后端已把「状态 + 执行层 + 事件留存」全部备好，引擎只需三件事：
+
+```ts
+// backend/src/engine/orchestrator.ts
+import type { LiveState } from '../../../shared/types.ts';
+
+export function start(ctx: {
+  store: LiveStore;              // ctx.store.onTick(fn) / ctx.store.addDecision(...)
+  polyvClient: PolyvClient;      // 也可直接用 ctx.executeAction / ctx.executeDecision
+  config: typeof config;
+  executeAction: (action, opts) => Promise<ExecuteOutcome>;
+  executeDecision: (id) => Promise<ExecuteOutcome|undefined>;
+}) {
+  ctx.store.onTick((state: LiveState) => {
+    // 1) 规则判定：读 state.metrics / state.strategy
+    // 2) 生成理由（DeepSeek，失败走模板）
+    // 3) 按 state.mode 落地：
+    //      auto      → ctx.store.addDecision({...status:'suggested'}) 后 await ctx.executeDecision(id)
+    //      semiauto  → status:'pending_confirm'，等前端调 /api/decision/confirm
+    //      suggest   → status:'suggested'，不执行
+  });
+}
+```
+
+- `store.addDecision()` 会自动打时间轴标记 + 写 `decision` 事件，**不要自己重复写事件**
+- 冷却时间 / 阈值统一从 `state.strategy` 读，运营在前端改完立即生效
+- 复盘时机：`store.subscribe` 里监听 `running === false && endedAt != null`
+- `/api/replay` 会自动尝试 `import('../review/report.ts')`：只要该文件导出
+  `generateReport(session) => ReplayResp | string`，B 的兜底报告即自动让位，**接口无需改动**
