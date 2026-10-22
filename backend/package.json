@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "sign:selftest": "tsx src/polyv/sign.ts --selftest",
-    "sim:check": "tsx src/scripts/sim-check.ts"
+    "sim:check": "tsx src/scripts/sim-check.ts",
+    "smoke": "tsx src/scripts/smoke.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
