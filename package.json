@@ -1,0 +1,16 @@
+{
+  "name": "livepilot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "LivePilot · 智播副驾 — 保利威 2026 Hackathon 项目（运营端 AI 直播运营智能体驾驶舱）",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "install:all": "npm install",
+    "typecheck": "npm run typecheck -w backend"
+  }
+}
