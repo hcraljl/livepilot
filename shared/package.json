@@ -1,0 +1,17 @@
+{
+  "name": "@livepilot/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LivePilot 前后端共享类型契约（唯一类型来源，成员 B 维护）",
+  "type": "module",
+  "types": "./types.ts",
+  "exports": {
+    ".": {
+      "types": "./types.ts",
+      "default": "./types.ts"
+    }
+  },
+  "files": [
+    "types.ts"
+  ]
+}
