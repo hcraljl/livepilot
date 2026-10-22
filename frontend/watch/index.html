@@ -57,7 +57,7 @@
 <div class="wrap">
   <header>
     <div class="logo">PV</div>
-    <h1>真实观看页 · 保利威观看 SDK<small>@polyv/live-watch-sdk v2.20.0（官方开源 SDK，CDN UMD 引入）</small></h1>
+    <h1>真实观看页 · 保利威观看 SDK<small>@polyv/live-watch-sdk（官方开源 SDK · 本地优先，CDN 兜底）</small></h1>
     <div class="spacer"></div>
     <nav class="navtabs">
       <a class="navlink" href="/demo/">← 模拟看板</a>
@@ -65,7 +65,7 @@
       <a class="navlink" href="/api/polyv/capabilities" target="_blank">能力清单</a>
     </nav>
     <span class="chip mock" id="execChip">动作：模拟回执</span>
-    <span class="chip" id="sdkChip">SDK 未加载</span>
+    <span class="chip" id="sdkChip">SDK 加载中…</span>
     <input id="channelId" placeholder="频道号 channelId" />
     <input id="nickName" placeholder="观众昵称" value="运营小助手" />
     <button class="primary" id="btnJoin">加入频道</button>
@@ -103,7 +103,6 @@
   </div>
 </div>
 
-<script src="https://websdk.videocc.net/live-watch-sdk/latest/lib/polyv-live-watch-sdk.umd.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const logBox = $('log');
@@ -116,23 +115,46 @@ const log = (msg, cls) => {
   logBox.scrollTop = logBox.scrollHeight;
 };
 
-// ---------- 1. SDK 是否就绪 ----------
-const SDK = window.PolyvLiveWatchSDK;
-if (!SDK) {
-  $('sdkChip').textContent = 'SDK 加载失败';
-  $('sdkChip').className = 'chip err';
-  log('✗ 未取到 window.PolyvLiveWatchSDK，检查 CDN 是否可达', 'e');
-} else {
-  $('sdkChip').textContent = 'SDK 已加载';
-  $('sdkChip').className = 'chip ok';
-  log('✓ <b>@polyv/live-watch-sdk</b> 已加载，导出：' + Object.keys(SDK).slice(0, 12).join(' / '), 's');
-}
-
-// ---------- 2. 加入频道并挂播放器 ----------
+let SDK = null;
 let watchCore = null;
 
+/** 动态加载脚本（本地优先 → CDN 兜底，现场断网也能跑） */
+const loadScript = (src) => new Promise((resolve, reject) => {
+  const el = document.createElement('script');
+  el.src = src;
+  el.onload = () => resolve(src);
+  el.onerror = () => reject(new Error('加载失败：' + src));
+  document.head.appendChild(el);
+});
+
+async function bootSdk() {
+  const LOCAL = './vendor/polyv-live-watch-sdk.umd.js';
+  const CDN = 'https://websdk.videocc.net/live-watch-sdk/latest/lib/polyv-live-watch-sdk.umd.js';
+  let from = '本地包';
+  try {
+    await loadScript(LOCAL);
+  } catch (e) {
+    log('本地 SDK 加载失败，回退官方 CDN…', 'e');
+    from = '官方 CDN';
+    try { await loadScript(CDN); }
+    catch (e2) { log('✗ 本地与 CDN 均加载失败：' + e2.message, 'e'); }
+  }
+
+  SDK = window.PolyvLiveWatchSDK;
+  if (!SDK) {
+    $('sdkChip').textContent = 'SDK 加载失败';
+    $('sdkChip').className = 'chip err';
+    log('✗ 未取到 window.PolyvLiveWatchSDK', 'e');
+    return;
+  }
+  $('sdkChip').textContent = 'SDK 已加载（' + from + '）';
+  $('sdkChip').className = 'chip ok';
+  log(`✓ <b>@polyv/live-watch-sdk</b> 已加载（${from}），导出：` + Object.keys(SDK).slice(0, 12).join(' / '), 's');
+}
+
+// ---------- 加入频道并挂播放器 ----------
 async function join() {
-  if (!SDK) return;
+  if (!SDK) { log('SDK 还没加载完，稍等一下', 'e'); return; }
   if (watchCore) { log('已有实例，先刷新页面再切换频道', 'e'); return; }
   const channelId = ($('channelId').value || '').trim();
   if (!channelId) { log('请先填写频道号（保利威后台可见）', 'e'); return; }
@@ -143,7 +165,6 @@ async function join() {
     watchCore = SDK.createWatchCore({ channelId });
     log('✓ 核心实例创建成功');
 
-    // 部分版本由 SDK 内部完成初始化；若暴露了 start / auth，则显式调用
     if (typeof watchCore.start === 'function') {
       log('调用 watchCore.start() …');
       await watchCore.start();
@@ -184,9 +205,16 @@ async function join() {
 }
 
 $('btnJoin').onclick = join;
-$('channelId').value = localStorage.getItem('livepilot.channelId') || '';
 
-// ---------- 3. 后端 AI 决策流（证明「AI 决策 → 真实 API → 真实观看页」闭环） ----------
+/**
+ * 频道号来源优先级：URL 参数（A 的分屏 iframe 会传 ?channelId=） > 本地缓存
+ * 有 URL 参数时自动加入频道，省掉一次点击。
+ */
+const qs = new URLSearchParams(location.search);
+const qsChannel = (qs.get('channelId') || '').trim();
+$('channelId').value = qsChannel || localStorage.getItem('livepilot.channelId') || '';
+
+// ---------- 后端 AI 决策流（证明「AI 决策 → 真实 API → 真实观看页」闭环） ----------
 function renderDecisions(state) {
   const m = state.metrics || {};
   $('simState').textContent = state.running
@@ -214,7 +242,7 @@ function connectSse() {
 connectSse();
 log('已连接 /api/stream，AI 决策会实时出现在右侧');
 
-// ---------- 4. 模拟入口（没配真实频道也能演示） ----------
+// ---------- 模拟入口（没配真实频道也能演示） ----------
 const post = (url, body) => fetch(url, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
 }).then((r) => r.json());
@@ -231,6 +259,14 @@ fetch('/api/polyv/mode').then((r) => r.json()).then((r) => {
   $('execChip').textContent = d.useReal ? '动作：真实调用 ' + (d.channelId || '') : '动作：模拟回执';
   $('execChip').className = 'chip ' + (d.useReal ? 'ok' : 'mock');
 }).catch(() => {});
+
+// ---------- 启动 ----------
+bootSdk().then(() => {
+  if (qsChannel && SDK) {
+    log(`检测到 URL 频道号 ${qsChannel}，自动加入…`);
+    setTimeout(join, 400);
+  }
+});
 </script>
 </body>
 </html>
