@@ -5,32 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>LivePilot · 真实观看页（保利威观看 SDK）</title>
 <style>
-  :root{--bg:#0b1014;--panel:#121a21;--panel2:#0f161c;--line:#1f2c36;--txt:#e8eef3;--dim:#8b9cab;--faint:#5d6f7e;
-    --ai:#4dd0e1;--up:#ff5a5f;--ok:#2fbf71;--warn:#f5b942}
+  /* 调色板与驾驶舱主页（frontend/src + tailwind.config.ts）对齐：
+     底 brand-50 #E6F1FB / 面板 白 / 文字 gray-900 / 主色 brand-600 #185FA5，
+     success #1D9E75、danger #C33C3C、warn #BA7517 与主页语义色同源。 */
+  :root{color-scheme:light;--bg:#E6F1FB;--panel:#ffffff;--panel2:#F7FAFE;--line:#E5E7EB;--txt:#111827;--dim:#5B6B7C;--faint:#8A9AAB;
+    --ai:#185FA5;--up:#C33C3C;--ok:#1D9E75;--warn:#BA7517}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
   .wrap{max-width:1440px;margin:0 auto;padding:18px 22px 40px}
   header{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-  .logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#4dd0e1,#2b7fff);display:grid;place-items:center;color:#04141a;font-weight:800}
+  .logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#378ADD,#185FA5);display:grid;place-items:center;color:#fff;font-weight:800}
   h1{font-size:16px;margin:0}
-  h1 small{display:block;font-size:11px;color:var(--faint);font-weight:400;letter-spacing:.5px}
+  h1 small{display:block;font-size:11px;color:var(--dim);font-weight:400;letter-spacing:.5px}
   .spacer{flex:1}
   input,button{font:inherit;color:var(--txt);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;outline:none}
   input{width:150px}
   button{cursor:pointer}
-  button:hover{border-color:#31454f}
-  button.primary{background:linear-gradient(135deg,#2b7fff,#4dd0e1);color:#04141a;font-weight:700;border:0}
+  button:hover{border-color:#85B7EB}
+  button.primary{background:linear-gradient(135deg,#2A78C0,#185FA5);color:#fff;font-weight:700;border:0}
   .chip{padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);font-size:12px;color:var(--dim)}
-  .chip.ok{color:#8be3b4;border-color:#1e4430;background:#102019}
-  .chip.err{color:#ffb3b5;border-color:#3a2026;background:#1b1216}
-  .chip.mock{color:#7fd9e6;border-color:#21404b;background:#0f1e25}
+  .chip.ok{color:#0F6E56;border-color:#9FE1CB;background:#E1F5EE}
+  .chip.err{color:#A32D2D;border-color:#F7C1C1;background:#FCEBEB}
+  .chip.mock{color:#185FA5;border-color:#B5D4F4;background:#E6F1FB}
   a.navlink{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:8px;
     border:1px solid var(--line);background:var(--panel2);color:var(--dim);font-size:12.5px;text-decoration:none}
-  a.navlink:hover{border-color:#31454f;color:var(--txt)}
-  a.navlink.active{background:#16232c;color:var(--ai);border-color:#21404b}
+  a.navlink:hover{border-color:#85B7EB;color:var(--txt)}
+  a.navlink.active{background:#E6F1FB;color:#185FA5;border-color:#85B7EB}
   .navtabs{display:flex;gap:6px;align-items:center}
   .simbar{display:flex;align-items:center;gap:9px;margin-top:12px;padding:9px 13px;border-radius:11px;
-    border:1px solid #1e3a44;background:linear-gradient(180deg,#101d24,#0e181e);font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+    border:1px solid #D8E6F5;background:linear-gradient(180deg,#F7FAFE,#EDF4FC);font-size:12.5px;color:var(--dim);flex-wrap:wrap}
   .simbar b{color:var(--ai)}
   .grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;margin-top:16px;align-items:start}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
@@ -38,18 +41,18 @@
     border-bottom:1px solid var(--line);background:var(--panel2)}
   #player{width:100%;aspect-ratio:16/9;background:#000}
   .stack{display:grid;gap:16px}
-  .log{padding:10px 14px;max-height:300px;overflow:auto;font:12px/1.7 ui-monospace,Consolas,monospace;color:#9fb3c0}
+  .log{padding:10px 14px;max-height:300px;overflow:auto;font:12px/1.7 ui-monospace,Consolas,monospace;color:#6B7A8A}
   .log b{color:var(--ai);font-weight:600}
-  .log .e{color:#ffb3b5}
-  .log .s{color:#8be3b4}
-  .dec{padding:10px 14px;border-bottom:1px solid #17222b;font-size:12.5px}
+  .log .e{color:#A32D2D}
+  .log .s{color:#0F6E56}
+  .dec{padding:10px 14px;border-bottom:1px solid #EDF2F9;font-size:12.5px}
   .dec:last-child{border:0}
   .dec .t{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .tag{font-size:11px;padding:1px 7px;border-radius:6px;background:#182a33;color:var(--ai);border:1px solid #21404b}
-  .tag.rule{background:#241a2b;color:#c79bff;border-color:#3a2a4a}
+  .tag{font-size:11px;padding:1px 7px;border-radius:6px;background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4}
+  .tag.rule{background:#FAEEDA;color:#74440A;border-color:#FAC775}
   .dec .r{color:var(--dim);font-size:12px;margin-top:3px}
-  .hint{padding:14px;color:var(--faint);font-size:12.5px;line-height:1.7}
-  .hint code{background:#16222b;padding:1px 5px;border-radius:4px;color:#a8c2d1}
+  .hint{padding:14px;color:var(--dim);font-size:12.5px;line-height:1.7}
+  .hint code{background:#EEF4FB;padding:1px 5px;border-radius:4px;color:#185FA5}
   @media (max-width:1080px){.grid{grid-template-columns:1fr}}
   /* ---- 背景层（参考站同款：循环视频 + 本地抽帧兜底 + 遮罩） ----
      层级：body 底色 --bg（最终回退） < #bgPoster（本地抽帧） < #bgVideo（远端循环视频） < #bgScrim（遮罩） < 页面内容。
@@ -57,7 +60,8 @@
   #bgFx{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
   #bgPoster{position:absolute;inset:0;background:url("./assets/bg-poster.jpg") center bottom/cover no-repeat}
   #bgVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center bottom;opacity:0}
-  #bgScrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,16,20,.82) 0%,rgba(11,16,20,.66) 45%,rgba(11,16,20,.86) 100%)}
+  /* 遮罩改为 brand-50 同色系的浅色薄纱：页面整体读作浅色（与主页一致），视频/星空仍隐约透出 */
+  #bgScrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(230,241,251,.80) 0%,rgba(230,241,251,.66) 45%,rgba(230,241,251,.86) 100%)}
   /* 竖屏/窄屏换竖版抽帧，避免横图裁掉主体；视频端 object-fit:cover 自适应 */
   @media (max-width:760px),(max-aspect-ratio:3/4){#bgPoster{background-image:url("./assets/bg-poster-portrait.jpg")}}
 </style>
@@ -126,7 +130,7 @@ const log = (msg, cls) => {
   const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   const div = document.createElement('div');
   if (cls) div.className = cls;
-  div.innerHTML = `<span style="color:#4a5c69">${t}</span> ${msg}`;
+  div.innerHTML = `<span style="color:#98A6B5">${t}</span> ${msg}`;
   logBox.appendChild(div);
   logBox.scrollTop = logBox.scrollHeight;
 };
@@ -243,8 +247,8 @@ function renderDecisions(state) {
       <div class="t">
         <span class="tag rule">${d.rule || '规则'}</span>
         <span class="tag">${d.action}</span>
-        <span style="color:${d.status === 'executed' ? '#2fbf71' : '#f5b942'}">${d.status}</span>
-        ${d.result ? `<span style="color:${d.result.mock ? '#f5b942' : '#2fbf71'}">${d.result.mock ? '模拟' : '真实'}</span>` : ''}
+        <span style="color:${d.status === 'executed' ? '#1D9E75' : '#BA7517'}">${d.status}</span>
+        ${d.result ? `<span style="color:${d.result.mock ? '#BA7517' : '#1D9E75'}">${d.result.mock ? '模拟' : '真实'}</span>` : ''}
       </div>
       <div class="r">${d.reason || ''}</div>
     </div>`).join('');
