@@ -141,6 +141,24 @@ export class LiveStore {
     }
   }
 
+  /**
+   * 合并广播：同一轮微任务内的多次变更只推一帧给 SSE。
+   *
+   * 为什么需要：一次业务操作往往连着改好几个字段（例如模拟器 tick 里先 patchMetrics
+   * 再 tick()），若每步都同步广播，前端会在同一瞬间收到好几帧内容几乎相同的快照。
+   * 用微任务合并既可去重、又仍在同步流程里完成（不等定时器，语义依旧可预期）。
+   */
+  private notifyScheduled = false;
+
+  private notifySoon(): void {
+    if (this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    queueMicrotask(() => {
+      this.notifyScheduled = false;
+      this.notify();
+    });
+  }
+
   // ---------- 会话生命周期 ----------
 
   startSession(totalMin: number, source: LiveState['source'] = 'simulator'): LiveState {
@@ -264,6 +282,8 @@ export class LiveStore {
       next.elapsedMin = Number(next.elapsedMin.toFixed(3));
       this.state.metrics = next;
       this.recomputeFunnel();
+      // 广播给 SSE：少了这步，真实指标每 5s 更新却不推帧，前端只能靠刷新页面才看得到
+      this.notifySoon();
       return next;
     }
     // 单调递增类指标做护栏，防止模拟器抖回去
@@ -278,6 +298,8 @@ export class LiveStore {
     next.elapsedMin = Number(next.elapsedMin.toFixed(3));
     this.state.metrics = next;
     this.recomputeFunnel();
+    // 广播给 SSE（同上，与 allowDecrease 分支保持一致）
+    this.notifySoon();
     return next;
   }
 
