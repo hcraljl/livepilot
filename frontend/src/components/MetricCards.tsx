@@ -74,7 +74,12 @@ function MetricCard({ card, state }: { card: CardDef; state: LiveState | null })
       <div className="mt-1 flex items-baseline gap-2">
         <b className="text-2xl font-medium text-gray-900">{current === null ? '—' : card.format(current)}</b>
         {trend && (
-          <span className={`text-xs font-medium ${trend.pct >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+          /* whitespace-nowrap：1280 宽下「▲ 89%」曾被挤成两行（v0.4.0） */
+          <span
+            className={`whitespace-nowrap text-xs font-medium ${
+              trend.pct >= 0 ? 'text-success-600' : 'text-danger-600'
+            }`}
+          >
             {trend.pct >= 0 ? '▲' : '▼'} {Math.abs(trend.pct).toFixed(0)}%
           </span>
         )}

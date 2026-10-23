@@ -71,14 +71,17 @@ const fromInput = (s: string, kind: FieldDef['kind']): number | null => {
   return kind === 'ratio' ? n / 100 : n;
 };
 
-/** 三档智能切换（off/hybrid/full，立即生效） @since v0.3.0 */
+/** 三档智能切换（off/hybrid/full，立即生效） @since v0.3.0
+ *  v0.4.0：补失败提示——此前接口报错被 finally 吞掉，点了没反应且无任何反馈 */
 function AiLevelSwitcher({ level }: { level: AiLevel }) {
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   return (
     <div>
       <div className="mb-1 flex items-center gap-2">
         <span className="text-xs font-medium text-gray-600">智能档位</span>
         <span className="text-[11px] text-gray-400">{AI_LEVEL_HINTS[level]}</span>
+        {err && <span className="ml-auto text-[11px] text-danger-600">{err}</span>}
       </div>
       <div className="flex rounded-md border border-gray-200 p-0.5">
         {AI_LEVELS.map((lv) => (
@@ -89,8 +92,11 @@ function AiLevelSwitcher({ level }: { level: AiLevel }) {
             title={AI_LEVEL_HINTS[lv]}
             onClick={async () => {
               setBusy(true);
+              setErr(null);
               try {
                 await updateStrategy({ aiLevel: lv });
+              } catch (e) {
+                setErr(`切换失败：${e instanceof Error ? e.message : String(e)}`);
               } finally {
                 setBusy(false);
               }
@@ -107,33 +113,41 @@ function AiLevelSwitcher({ level }: { level: AiLevel }) {
   );
 }
 
+/** 三档模式（suggest/semiauto/auto） @since v0.2.0（v0.4.0 补失败提示） */
 function ModeSwitcher({ mode }: { mode: Mode }) {
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   return (
-    <div className="flex rounded-md border border-gray-200 p-0.5">
-      {MODES.map((m) => (
-        <button
-          key={m}
-          type="button"
-          disabled={busy}
-          title={
-            m === 'suggest' ? '只给建议，不自动执行' : m === 'semiauto' ? '预填动作，运营确认后执行' : 'AI 全自动执行'
-          }
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await setMode(m);
-            } finally {
-              setBusy(false);
+    <div>
+      <div className="flex rounded-md border border-gray-200 p-0.5">
+        {MODES.map((m) => (
+          <button
+            key={m}
+            type="button"
+            disabled={busy}
+            title={
+              m === 'suggest' ? '只给建议，不自动执行' : m === 'semiauto' ? '预填动作，运营确认后执行' : 'AI 全自动执行'
             }
-          }}
-          className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-            mode === m ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          {MODE_LABELS[m]}
-        </button>
-      ))}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await setMode(m);
+              } catch (e) {
+                setErr(`切换失败：${e instanceof Error ? e.message : String(e)}`);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              mode === m ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {MODE_LABELS[m]}
+          </button>
+        ))}
+      </div>
+      {err && <p className="mt-1 text-[11px] text-danger-600">{err}</p>}
     </div>
   );
 }

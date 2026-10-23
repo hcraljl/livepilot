@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AttributionItem, ExperienceMatch, ReplayResp } from '@livepilot/shared';
 import { fetchReplay, sessionExportUrl } from '../lib/api';
 import { formatGMV, formatInt } from '../lib/format';
+import { ProductRankingTable } from './ProductRanking';
 
 type LoadState =
   | { kind: 'loading' }
@@ -180,6 +181,14 @@ export function ReviewPage() {
                   <h3 className="mb-2 text-sm font-medium text-gray-700">互动效果榜（时间窗口归因）</h3>
                   <Leaderboard items={load.data.review.leaderboard} />
                 </section>
+
+                {/* 商品转化榜（v0.4.0：复盘的最后一问"哪款卖动了"） */}
+                {load.data.review.productRanking && load.data.review.productRanking.length > 0 && (
+                  <section className="rounded-lg bg-white p-4">
+                    <h3 className="mb-2 text-sm font-medium text-gray-700">本场商品转化榜</h3>
+                    <ProductRankingTable rows={load.data.review.productRanking} emptyText="本场无商品数据" />
+                  </section>
+                )}
 
                 {load.data.review.bestWindow && (
                   <section className="rounded-lg bg-white p-4">

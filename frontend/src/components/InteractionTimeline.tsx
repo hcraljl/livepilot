@@ -5,14 +5,19 @@
  *
  * 说明：横轴=已播分钟，纵轴=在线人数；决策标记按 (ts - startedAt) 换算分钟位，
  * 纵坐标对 timeline 线性插值，保证标记贴在曲线上。
+ *
+ * v0.4.0 修复：viewBox 宽度改为按容器实测宽度（ResizeObserver），高度固定 220px。
+ * 旧实现固定 viewBox 720×200 + w-full，在 1920 宽屏上等比放大到约 400px 高，
+ * 把「AI 决策流」整块挤出首屏；现在宽高比跟随容器，文字也不再被横向拉伸。
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Decision, LiveState, TimelinePoint } from '@livepilot/shared';
 import { ACTION_LABELS, DECISION_STATUS_LABELS } from '../lib/constants';
 import { formatClock, formatInt } from '../lib/format';
 
-const W = 720;
-const H = 200;
+/** 固定高度 220px；宽度取容器实测值 @since v0.4.0 */
+const H = 220;
+const MIN_W = 320;
 const PAD = { l: 44, r: 14, t: 14, b: 26 };
 
 /** 线性插值：取目标分钟处的在线人数 @since v0.2.0 */
@@ -74,6 +79,21 @@ interface InteractionTimelineProps {
 
 export function InteractionTimeline({ state }: InteractionTimelineProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(720);
+
+  /** 跟随容器宽度（1:1 像素映射，避免等比放大把图拉高） @since v0.4.0 */
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w > 0) setWidth((prev) => (Math.abs(prev - w) > 1 ? w : prev));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const points = state?.timeline ?? [];
   const decisions = state?.decisions ?? [];
 
@@ -86,6 +106,7 @@ export function InteractionTimeline({ state }: InteractionTimelineProps) {
     );
   }
 
+  const W = Math.max(width, MIN_W);
   const xMax = Math.max(state.metrics.totalMin, points[points.length - 1].t, 1);
   const yMax = niceCeil(Math.max(...points.map((p) => p.online), 10));
   const x = (t: number) => PAD.l + (t / xMax) * (W - PAD.l - PAD.r);
@@ -109,46 +130,54 @@ export function InteractionTimeline({ state }: InteractionTimelineProps) {
         <h3 className="text-sm font-medium text-gray-700">互动时间轴</h3>
         <span className="text-[11px] text-gray-400">点击曲线上的标记查看 AI 触发理由</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="在线人数曲线与 AI 互动标记">
-        <title>在线人数曲线与 AI 互动标记</title>
-        {/* 网格与坐标 */}
-        <line x1={PAD.l} y1={H - PAD.b} x2={W - PAD.r} y2={H - PAD.b} stroke="#D3D1C7" strokeWidth="0.5" />
-        <line x1={PAD.l} y1={y(yMax / 2)} x2={W - PAD.r} y2={y(yMax / 2)} stroke="#EEEDE8" strokeWidth="0.5" />
-        <text x={PAD.l - 6} y={y(yMax)} textAnchor="end" fontSize="10" fill="#888780" dominantBaseline="central">
-          {formatInt(yMax)}
-        </text>
-        <text x={PAD.l - 6} y={y(yMax / 2)} textAnchor="end" fontSize="10" fill="#888780" dominantBaseline="central">
-          {formatInt(yMax / 2)}
-        </text>
-        <text x={PAD.l} y={H - 8} fontSize="10" fill="#888780">
-          0′
-        </text>
-        <text x={W - PAD.r} y={H - 8} textAnchor="end" fontSize="10" fill="#888780">
-          {xMax}′
-        </text>
-        {/* 面积 + 曲线 */}
-        <path d={area} fill="#E6F1FB" />
-        <path d={path} fill="none" stroke="#185FA5" strokeWidth="1.5" />
-        {/* 决策标记 */}
-        {markers.map(({ decision, cx, cy }) => (
-          <g
-            key={decision.id}
-            className="cursor-pointer"
-            onClick={() => setSelectedId(selectedId === decision.id ? null : decision.id)}
-          >
-            <circle cx={cx} cy={cy} r="9" fill="transparent" />
-            <circle
-              cx={cx}
-              cy={cy}
-              r={selectedId === decision.id ? 5.5 : 4}
-              fill={STATUS_COLOR[decision.status]}
-              stroke="#FFFFFF"
-              strokeWidth="1.5"
-            />
-            <title>{`${decision.title || decision.rule}（${DECISION_STATUS_LABELS[decision.status]}）`}</title>
-          </g>
-        ))}
-      </svg>
+      <div ref={wrapRef} className="w-full">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          style={{ height: H }}
+          className="w-full"
+          role="img"
+          aria-label="在线人数曲线与 AI 互动标记"
+        >
+          <title>在线人数曲线与 AI 互动标记</title>
+          {/* 网格与坐标 */}
+          <line x1={PAD.l} y1={H - PAD.b} x2={W - PAD.r} y2={H - PAD.b} stroke="#D3D1C7" strokeWidth="0.5" />
+          <line x1={PAD.l} y1={y(yMax / 2)} x2={W - PAD.r} y2={y(yMax / 2)} stroke="#EEEDE8" strokeWidth="0.5" />
+          <text x={PAD.l - 6} y={y(yMax)} textAnchor="end" fontSize="10" fill="#888780" dominantBaseline="central">
+            {formatInt(yMax)}
+          </text>
+          <text x={PAD.l - 6} y={y(yMax / 2)} textAnchor="end" fontSize="10" fill="#888780" dominantBaseline="central">
+            {formatInt(yMax / 2)}
+          </text>
+          <text x={PAD.l} y={H - 8} fontSize="10" fill="#888780">
+            0′
+          </text>
+          <text x={W - PAD.r} y={H - 8} textAnchor="end" fontSize="10" fill="#888780">
+            {xMax}′
+          </text>
+          {/* 面积 + 曲线 */}
+          <path d={area} fill="#E6F1FB" />
+          <path d={path} fill="none" stroke="#185FA5" strokeWidth="1.5" />
+          {/* 决策标记 */}
+          {markers.map(({ decision, cx, cy }) => (
+            <g
+              key={decision.id}
+              className="cursor-pointer"
+              onClick={() => setSelectedId(selectedId === decision.id ? null : decision.id)}
+            >
+              <circle cx={cx} cy={cy} r="9" fill="transparent" />
+              <circle
+                cx={cx}
+                cy={cy}
+                r={selectedId === decision.id ? 5.5 : 4}
+                fill={STATUS_COLOR[decision.status]}
+                stroke="#FFFFFF"
+                strokeWidth="1.5"
+              />
+              <title>{`${decision.title || decision.rule}（${DECISION_STATUS_LABELS[decision.status]}）`}</title>
+            </g>
+          ))}
+        </svg>
+      </div>
       <div className="mt-1 flex items-center gap-3 text-[11px] text-gray-400">
         <span>曲线末端：在线 {formatInt(points[points.length - 1].online)}</span>
         <span>已播 {formatClock(state.metrics.elapsedMin)}</span>
