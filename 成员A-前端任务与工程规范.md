@@ -345,6 +345,24 @@ frontend/
 | 单命令并行起前后端（`npm run dev`） | 现在要开两个终端 | 需引入 `concurrently` 或新增共享脚本，改动落在团队公共区（scripts/），赛前不宜动 |
 | 观看页产物体积（watch-sdk 15.15MB + UMD 1.1MB） | 离线演示必需，已有构建脚本可复现 | 未超 50MB，无需 LFS；如后续膨胀再考虑 |
 
+### 8.7 B 的 v0.6.0（观众端弹层）审查与 v0.6.1 修补（2026-10-23 15:00）
+
+**背景**：B 在 `64014dd` 把我负责的 `App.tsx` / `WatchEmbed.tsx` / `SplitView.tsx` 重构为「看板全宽 + 观众端弹层」（另有 `6e80928` 新增 `start.bat` 一键启动、`f63b273` 抽奖 40028 复用已有活动）。先整树对齐（241/241），再按 A 的职责复审。
+
+**B 的实现评价（保留）**：弹层用 `createPortal` 挂 body（避免 header overflow 裁切）、Esc/遮罩/关闭三路可关、每次打开重新挂载 iframe（拿最新直播态且关掉不留声音）、缩放策略把 iframe 逻辑高度设为 `容器高 / scale`（缩放后仍铺满且页面自身可滚）、保留 v0.5.1 的 `/watch/` 地址修正——这几处设计比原侧栏方案更贴合演示。
+
+**复审发现并修补（v0.6.1）**
+
+| # | 问题 | 依据 | 修补 | 效果 |
+|---|---|---|---|---|
+| 1 | `bg-success-500`、`text-danger-700` 等类**在色板里不存在**（原色板只有 50/100/200/400/600/800），Tailwind 不报错只是静默不生效 | grep 全仓自定义色阶；`success-500`（新代码）、`danger-700`（我早前写的错误横幅文案） | `tailwind.config.ts` 为 brand/success/warn/danger 补齐 300/500/700 中间阶 | 错误横幅真正变红、状态点可见；今后用到中间阶不再踩空 |
+| 2 | 弹层盖住整页但**背景仍可滚动**，滚轮会穿透到看板 | 实机滚轮验证 | 打开期间 `document.body.style.overflow='hidden'`，关闭/卸载还原 | 弹层内滚动不再带动背景 |
+| 3 | 官方页在 1134px 容器下仍有 28px 横向溢出（原逻辑宽 1080 小于该页最小内容宽） | CDP 实测 `scrollWidth=1147 / clientWidth=1119` | `OFFICIAL_LOGICAL_W` 1080 → **1180** | 横向溢出 28px → 仅剩滚动条宽度 |
+| 4 | 官方页自身用 `100vw` 布局（含纵向滚动条宽），任何容器都多约 15px 横向滚动条 | 同上实测 | 嵌入层 `onLoad` 里给 iframe 文档设 `overflowX='hidden'`（不改 vendor 产物，try/catch 兜底） | 弹层内不再出现多余横向滚动条；1180 逻辑宽保证不会裁掉真实内容 |
+| 5 | `frontend/package.json` 版本停在 0.5.0，而功能已到 v0.6.x | §3.1 SemVer | 升 `0.6.0` | 版本语义与功能里程碑同步 |
+
+**验证**：`tsc` + `vite build` 零错误（192.40 kB JS / 17.12 kB CSS）· Edge CDP **13/13**：看板吃满 1896px（无 400px 侧栏）、header 触发器存在、弹层 1920×1080 内嵌 `/watch/?channelId=…`、打开时锁滚动、Esc 关闭后恢复、720p 弹层不越界；截图 `screenshots/12-dashboard-fullwidth.png`、`13-watch-modal-1080p.png`、`14-watch-modal-720p.png`。
+
 ---
 
 *本文档由 A 维护；规范变更走 PR（§3.5）。配套架构图与时间线见项目会话记录。*

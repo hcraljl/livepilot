@@ -54,8 +54,14 @@ import { fetchPolyvChannel, setPolyvChannel, type PolyvChannelInfo } from '../li
  */
 const WATCH_PAGE = '/watch/';
 
-/** 官方观看页的逻辑宽度（实测依据：iframe 宽 351px 时页面 scrollWidth ≈ 1076px） @since v0.5.1 */
-const OFFICIAL_LOGICAL_W = 1080;
+/**
+ * 官方观看页的逻辑宽度 @since v0.5.1（v0.6.1 由 1080 修正为 1180）
+ *
+ * 实测依据：容器 1134px 时页面 `scrollWidth=1147 / clientWidth=1119`，即该页有约
+ * **1147px 的最小内容宽**（播放区 + 聊天区 + 商品面板的固定宽度之和），不随 iframe 收缩。
+ * 因此逻辑宽必须 ≥ 1147 才不会出现横向滚动条；取 1180 留 30px 余量。
+ */
+const OFFICIAL_LOGICAL_W = 1180;
 
 /** 观众端互动卡片的配色（按动作类型区分，弱化但可辨） @since v0.4.0 */
 const ACTION_TONE: Record<string, string> = {
@@ -90,7 +96,11 @@ function OfficialFrame({ channel }: { channel: string }) {
     return () => ro.disconnect();
   }, []);
 
-  /** 容器比逻辑宽更宽 → 不缩放；否则按宽度等比缩，高度同步放大以保证缩放后铺满 */
+  /**
+   * 容器比逻辑宽更宽 → 不缩放；否则按宽度等比缩，高度同步放大以保证缩放后铺满。
+   * 逻辑宽取 OFFICIAL_LOGICAL_W（含最小内容宽余量），因此缩放过后的 iframe 内部
+   * 不会再出现横向滚动条（v0.6.1 修复）。
+   */
   const scale = box.w === 0 ? 1 : Math.min(box.w / OFFICIAL_LOGICAL_W, 1);
   const frameStyle =
     box.w === 0
@@ -116,7 +126,22 @@ function OfficialFrame({ channel }: { channel: string }) {
         src={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
         sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"
         referrerPolicy="no-referrer"
-        onLoad={() => setLoaded(true)}
+        onLoad={(e) => {
+          setLoaded(true);
+          /**
+           * 官方页内用了 100vw 布局，含纵向滚动条宽度 → 任何容器下都会多出约 15px
+           * 横向溢出（真实观众直接访问时同样如此）。这里只是在**嵌入层**隐藏这条
+           * 纯装饰性横向滚动条，不改 vendor 产物；逻辑宽已按 1180 留过余量，
+           * 不会被裁掉真实内容。失败（跨域/沙箱限制）时静默忽略。
+           * @since v0.6.1
+           */
+          try {
+            const doc = e.currentTarget.contentDocument;
+            if (doc) doc.documentElement.style.overflowX = 'hidden';
+          } catch {
+            /* 拿不到 contentDocument 时保持原样 */
+          }
+        }}
         style={frameStyle}
       />
     </div>
@@ -282,14 +307,19 @@ export function WatchEmbed({ state }: WatchEmbedProps) {
     };
   }, []);
 
-  /** Esc 关闭弹层 @since v0.6.0 */
+  /** Esc 关闭弹层 + 打开期间锁背景滚动（v0.6.1：弹层盖住整页时背景仍能滚动，滚轮会穿透） @since v0.6.0 */
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setOpen(false);
     };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [open]);
 
   /** 接口不可用（或首屏未返回）时退回 SSE 帧里的 channelId @since v0.5.0 */
