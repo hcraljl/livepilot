@@ -191,3 +191,15 @@ export const fetchPolyvOperations = (): Promise<{
   auth: string[];
   operations: PolyvOperation[];
 }> => get<{ auth: string[]; operations: PolyvOperation[] }>('/api/polyv/operations');
+
+/** GET /api/polyv/channel —— 当前生效频道号（运行时覆盖优先） @since v0.4.0 */
+export interface PolyvChannelInfo {
+  channelId: string | null;
+  source: 'env' | 'runtime';
+  embeddable: boolean;
+}
+export const fetchPolyvChannel = (): Promise<PolyvChannelInfo> => get<PolyvChannelInfo>('/api/polyv/channel');
+
+/** POST /api/polyv/channel —— 运行时切换频道（传空串恢复 .env） @since v0.4.0 */
+export const setPolyvChannel = (channelId: string): Promise<PolyvChannelInfo> =>
+  post<PolyvChannelInfo>('/api/polyv/channel', { channelId });

@@ -165,6 +165,23 @@ const main = async (): Promise<void> => {
   );
   const watchPage = await fetch(`${BASE}/watch/`);
   check('真实观看页 /watch/ 可访问', watchPage.ok, `HTTP ${watchPage.status}`);
+  const watchHtml = await watchPage.text();
+  check(
+    '观看页是官方开源 SDK 产物（非占位页）',
+    /assets\/js\/(index|chunk-vendors)/.test(watchHtml) || /polyv-live-watch-sdk/.test(watchHtml),
+    `${watchHtml.length} bytes`,
+  );
+  const liteWatch = await fetch(`${BASE}/watch-lite/`);
+  check('轻量观看页 /watch-lite/ 兜底可用', liteWatch.ok, `HTTP ${liteWatch.status}`);
+  const channelInfo = await call('GET', '/api/polyv/channel');
+  check('频道号接口可用', channelInfo.json?.ok === true, JSON.stringify(channelInfo.json?.data));
+  const setChannel = await call('POST', '/api/polyv/channel', { channelId: '1234568' });
+  check('运行时设置频道号生效', setChannel.json?.data?.channelId === '1234568');
+  const stateAfter = await call('GET', '/api/state');
+  check('频道号已同步进 LiveState', stateAfter.json?.channelId === '1234568', stateAfter.json?.channelId);
+  const badChannel = await call('POST', '/api/polyv/channel', { channelId: 'a b/c' });
+  check('非法频道号返回 400', badChannel.status === 400);
+  await call('POST', '/api/polyv/channel', { channelId: '' });
   const polyvMode = await call('GET', '/api/polyv/mode');
   check('演练/真实模式接口可用', polyvMode.json?.ok === true, polyvMode.json?.data?.label);
   const backToMock = await call('POST', '/api/polyv/mode', { useReal: false });

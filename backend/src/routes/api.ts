@@ -270,6 +270,45 @@ apiRouter.post('/polyv/mode', (req, res) => {
   );
 });
 
+/**
+ * GET  /api/polyv/channel —— 当前生效频道号 + 是否来自运行时指定
+ * POST /api/polyv/channel { channelId } —— 运行时切换频道（演示现场换频道不必重启）
+ *
+ * 只切换「看哪个频道 / 往哪个频道发互动」，不涉及任何密钥。
+ * 传空字符串即恢复 .env 的 POLYV_CHANNEL_ID。
+ */
+apiRouter.get('/polyv/channel', (_req, res) => {
+  res.json(
+    ok({
+      channelId: store.effectiveChannelId() || null,
+      source: store.effectiveChannelId() === config.polyv.channelId ? 'env' : 'runtime',
+      embeddable: Boolean(store.effectiveChannelId()),
+    }),
+  );
+});
+
+apiRouter.post('/polyv/channel', (req, res) => {
+  const raw = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof raw.channelId !== 'string') {
+    res.status(400).json(fail('channelId 必须是字符串（传空字符串表示恢复默认）'));
+    return;
+  }
+  const id = raw.channelId.trim();
+  if (id !== '' && !/^[0-9A-Za-z_-]{1,64}$/.test(id)) {
+    res.status(400).json(fail('channelId 只允许数字/字母/下划线/连字符，长度 1-64'));
+    return;
+  }
+  const applied = store.setChannelId(id);
+  polyvClient.setChannelId(id);
+  res.json(
+    ok({
+      channelId: applied || null,
+      source: id ? 'runtime' : 'env',
+      embeddable: Boolean(applied),
+    }),
+  );
+});
+
 /** GET /api/polyv/operations —— 官方 API 常量目录（不是经验数据） */
 apiRouter.get('/polyv/operations', (_req, res) => {
   res.json(

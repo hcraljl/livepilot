@@ -11,7 +11,7 @@
  * 4. appSecret 只在本文件与 sign.ts 之间流动，永不出现在返回值 / 日志 / HTTP 响应里。
  */
 import type { ActionType, PolyvCallResult } from '../../../shared/types.ts';
-import { canUseRealPolyv, config } from '../config.ts';
+import { config } from '../config.ts';
 import { REAL_SPECS, type BuiltRequest, type ResourceKey } from './endpoints.ts';
 import { signParams } from './sign.ts';
 
@@ -54,8 +54,22 @@ export class PolyvClient {
    */
   private forceMock = false;
 
+  /** 运行时指定的频道号（演示现场可临时切换，空 = 用 .env） */
+  private runtimeChannelId = '';
+
+  /** 生效的频道号：运行时指定优先，其次 .env */
+  get channelId(): string {
+    return this.runtimeChannelId || config.polyv.channelId;
+  }
+
+  /** 运行时切换频道（只影响「往哪个频道发互动」，与密钥无关） */
+  setChannelId(channelId: string): string {
+    this.runtimeChannelId = channelId.trim();
+    return this.channelId;
+  }
+
   get isReal(): boolean {
-    return !this.forceMock && canUseRealPolyv();
+    return !this.forceMock && this.credentialsReady;
   }
 
   /** 是否处于强制演练（即使凭据齐备也不发真实请求） */
@@ -63,9 +77,12 @@ export class PolyvClient {
     return this.forceMock;
   }
 
-  /** 账号侧凭据是否齐备（只决定"能不能"切真实，不代表当前就在真实） */
+  /**
+   * 账号侧凭据是否齐备（只决定"能不能"切真实，不代表当前就在真实）。
+   * 频道号可用运行时值，方便现场换频道后立即生效。
+   */
   get credentialsReady(): boolean {
-    return canUseRealPolyv();
+    return config.useRealPolyv && Boolean(config.polyv.appId) && Boolean(config.polyv.appSecret) && Boolean(this.channelId);
   }
 
   /**
@@ -73,7 +90,7 @@ export class PolyvClient {
    * 避免现场误切成"半真半假"的状态。
    */
   setDryRun(on: boolean): boolean {
-    if (!on && !canUseRealPolyv()) {
+    if (!on && !this.credentialsReady) {
       this.forceMock = true;
       return false;
     }
@@ -100,8 +117,8 @@ export class PolyvClient {
       /** 是否强制演练（凭据齐备也不真发） */
       dryRun: this.forceMock,
       /** 凭据是否齐备（决定能不能切真实） */
-      credentialsReady: canUseRealPolyv(),
-      channelId: config.polyv.channelId,
+      credentialsReady: this.credentialsReady,
+      channelId: this.channelId,
       apiBase: config.polyv.apiBase,
       actions: (Object.keys(REAL_SPECS) as ActionType[]).map((action) => {
         const spec = REAL_SPECS[action];
@@ -140,7 +157,7 @@ export class PolyvClient {
       notes.push('未签名（缺 appSecret）');
     }
 
-    let channelId = opts.channelId || config.polyv.channelId;
+    let channelId = opts.channelId || this.channelId;
     if (!channelId) {
       if (!tolerant) throw new Error('未配置 POLYV_CHANNEL_ID，真实模式下必须先指定频道号');
       channelId = '<CHANNEL_ID>';
@@ -342,7 +359,7 @@ export class PolyvClient {
    * 统计轮询：真实模式下取频道统计，模拟模式返回 undefined（由模拟器供数）。
    * 路径可配（POLYV_STATS_PATH），不同 API 版本路径有差异。
    */
-  async pollStats(channelId = config.polyv.channelId): Promise<Partial<PolyvCallResult> | undefined> {
+  async pollStats(channelId = this.channelId): Promise<Partial<PolyvCallResult> | undefined> {
     if (!this.isReal) return undefined;
     try {
       const query = signParams({ channelId }) as Record<string, string | number>;

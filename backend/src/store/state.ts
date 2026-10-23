@@ -51,6 +51,8 @@ export class LiveStore {
   private eventSeq = 0;
   private sessionSeq = 0;
   private createdAt = Date.now();
+  /** 运行时频道号覆盖（空字符串 = 用 .env 的 POLYV_CHANNEL_ID） */
+  private channelOverride = '';
 
   constructor() {
     this.state = this.freshState();
@@ -60,7 +62,7 @@ export class LiveStore {
     return {
       running: false,
       mode: 'auto',
-      channelId: config.polyv.channelId,
+      channelId: this.effectiveChannelId(),
       sessionId: '',
       startedAt: null,
       endedAt: null,
@@ -136,7 +138,7 @@ export class LiveStore {
       mode: prevMode,
       strategy: prevStrategy,
       metrics: emptyMetrics(totalMin),
-      channelId: config.polyv.channelId,
+      channelId: this.effectiveChannelId(),
     };
     this.logEvent('session', '直播开始（模拟）', `计划时长 ${totalMin} 分钟 · 会话 ${sid}`);
     this.notify();
@@ -162,6 +164,29 @@ export class LiveStore {
     this.logEvent('system', '模式切换', `AI 副驾模式 → ${mode}`);
     this.notify();
     return mode;
+  }
+
+  /**
+   * 运行时指定频道号（演示现场可临时换成别的频道，不必改 .env 重启）。
+   * 传空字符串即恢复 .env 里的 POLYV_CHANNEL_ID。
+   * 注意：这只影响「看哪个频道 / 往哪个频道发互动」，不涉及任何密钥。
+   */
+  setChannelId(channelId: string): string {
+    const id = channelId.trim();
+    this.channelOverride = id;
+    this.state.channelId = this.effectiveChannelId();
+    this.logEvent(
+      'system',
+      id ? '切换演示频道' : '恢复默认频道',
+      id ? `频道号 → ${id}` : '回退到 .env 的 POLYV_CHANNEL_ID',
+    );
+    this.notify();
+    return this.state.channelId;
+  }
+
+  /** 生效的频道号：运行时指定优先，其次 .env */
+  effectiveChannelId(): string {
+    return this.channelOverride || config.polyv.channelId;
   }
 
   getMode(): Mode {
