@@ -62,10 +62,27 @@ app.use('/api', apiRouter);
 app.use(sseRouter);
 app.use(webhookRouter);
 
-// 真实观看页（保利威观看 SDK）：源码在 frontend/watch，不进构建，直接静态托管
-const watchDir = path.resolve(process.cwd(), '..', 'frontend', 'watch');
+/**
+ * 真实观看页 = 官方开源观看页（polyv_ef/polyv-web-live-watch-sdk）
+ *
+ * frontend/watch-sdk  —— 官方 UI 层构建产物（Vue2 + @polyv/live-watch-sdk），
+ *                        自带播放器 / 聊天 / 互动接收端（抽奖·答题卡·签到·卡片·公告）
+ * frontend/watch       —— 轻量兜底页（B 手写，只依赖 logic SDK UMD，可离线）
+ *
+ * 优先用官方页；产物缺失时自动退回轻量页，保证「右屏一定打得开」。
+ */
+const officialWatchDir = path.resolve(process.cwd(), '..', 'frontend', 'watch-sdk');
+const liteWatchDir = path.resolve(process.cwd(), '..', 'frontend', 'watch');
+const hasOfficialWatch = existsSync(path.join(officialWatchDir, 'index.html'));
+const hasLiteWatch = existsSync(path.join(liteWatchDir, 'index.html'));
+const watchDir = hasOfficialWatch ? officialWatchDir : liteWatchDir;
+const watchKind = hasOfficialWatch ? 'official' : 'lite';
 if (existsSync(watchDir)) {
   app.use('/watch', express.static(watchDir));
+}
+// 轻量页永远单独可访问，便于排查「官方页挂了但我还想看播放器」的情况
+if (hasLiteWatch) {
+  app.use('/watch-lite', express.static(liteWatchDir));
 }
 
 /**
@@ -157,7 +174,10 @@ const server = app.listen(config.port, () => {
   console.log('  —— 页面入口 ——');
   if (hasDist) console.log(`  前端（A 的正式界面） ${base}/`);
   if (hasDemo) console.log(`  模拟演示台（B 的看板）${hasDist ? '' : ' ← 根路径自动跳这里'} ${base}/demo/`);
-  console.log(`  真实观看页（观看 SDK）${base}/watch/`);
+  console.log(
+    `  真实观看页（${watchKind === 'official' ? '官方开源 SDK 观看页' : '轻量兜底页'}）${base}/watch/`,
+  );
+  if (hasLiteWatch) console.log(`  轻量观看页（兜底排查） ${base}/watch-lite/`);
   console.log('  —— 接口 ——');
   console.log(`  REST      ${base}/api/state`);
   console.log(`  SSE       ${base}/api/stream`);
