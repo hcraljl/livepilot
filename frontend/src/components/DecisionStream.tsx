@@ -93,7 +93,7 @@ export function DecisionStream({ state }: DecisionStreamProps) {
   const decisions = [...(state?.decisions ?? [])].reverse().slice(0, 50);
 
   return (
-    <section aria-label="AI 决策流" className="flex min-h-0 flex-1 flex-col rounded-lg bg-white p-4">
+    <section aria-label="AI 决策流" className="rounded-lg bg-white p-4">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-700">AI 决策流</h3>
         <span className="text-[11px] text-gray-400">共 {state?.decisions.length ?? 0} 条</span>
@@ -103,7 +103,9 @@ export function DecisionStream({ state }: DecisionStreamProps) {
           等待 AI 决策…（引擎接入后，规则触发将实时出现在此）
         </p>
       ) : (
-        <ul className="flex flex-col gap-2 overflow-y-auto">
+        /* 列表限高内部滚动；section 保持自然高度——
+           严禁在可滚动 flex 列里用 flex-1 min-h-0（视窗变矮时会被压成只剩表头） */
+        <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
           {decisions.map((d) => (
             <DecisionItem key={d.id} decision={d} onConfirmed={() => undefined} />
           ))}
