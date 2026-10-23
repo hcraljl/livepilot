@@ -291,6 +291,26 @@ frontend/
 
 **契约前向兼容确认**：B 的 `Metrics` 新增 `productCtr` 字段，我的 `isMetrics` 只校验必需字段（不做白名单穷举），因此新增字段天然兼容——这是 v0.1.0 就定下的守卫策略（§2.3）。
 
+### 8.5 本地对齐远端 + WatchEmbed v0.5.0（2026-10-23 12:30）
+
+**一、本地 ↔ 远端对齐（新增工具 `align-remote.js`，仓库外）**
+
+- 原理：远端 git tree 的每个 blob 与本地文件按 `git blob sha1` 逐字节比对，只下载不一致项；大文件走 git blobs API（contents API 有 1MB 上限）；`.gitignore` 覆盖的路径（node_modules / dist / .env / backend/data）不参与
+- 结果：远端 `185d831` → **236/236 文件与远端完全一致**；本次拉取 152 个新增（B 的 `frontend/watch-sdk/**` 官方观看页构建产物 15.15MB）+ 5 个更新（backend polyv 改动、package-lock、api.ts）
+- 本地多余文件仅 3 个：`.workbuddy/memory/*`（自动化工作记忆，**建议把 `.workbuddy/` 加进 .gitignore**，否则谁在本机跑 `git add -A` 会把内部笔记提交上去）
+- 对齐后 `install / typecheck / build / contract:check` 全绿
+
+**二、WatchEmbed v0.5.0（修复 B 反馈的真 bug + 接上 B 新接口）**
+
+| 问题 | 说明 | 修复 |
+|---|---|---|
+| 真实频道下右屏退回模拟画面 | 旧条件 `source === 'polyv' && channelId`；而后端 `LiveState.source` 默认恒为 `'simulator'`（只有 `startSession(source='polyv')` 才是 polyv），`channelId` 取 effectiveChannelId（.env 或运行时）——「真实频道 + 模拟动作」组合下永远不进 iframe | 嵌入条件改为**只看 channelId**；频道号以 `GET /api/polyv/channel` 为准（含 `embeddable`），接口不可用时回退 SSE 帧的 `channelId` |
+| 官方观看页被 16:9 裁掉半截 | 该页是完整页面而非纯播放器 | 嵌入槽位改 `h-[38vh] max-h-420 min-h-200`；无频道时仍用 16:9 占位保持"视频"观感 |
+| 运行时换频道接口无人调用 | B 已提供 `GET/POST /api/polyv/channel`，api.ts 有封装但界面没入口 | 右屏头部加「换频道」，可现场切频道而不重启后端；切换后以接口返回为准并即时重载 iframe |
+| 有真实频道时互动流消失 | 旧实现 iframe 与观众端互动流二选一 | 拆成 `PlayerSlot` + `ViewerFeed` 两个块，真实频道下**画面与互动流同时在**（产品故事：AI 动作在观众侧长什么样） |
+
+**验证（Edge CDP，7/7 通过）**：无频道 → 模拟观众端；点「换频道」→ 输入 8659539 → 切换 → iframe `src=/watch/index.html?channelId=8659539`、徽章「真实频道」、显示频道号、互动流保留、无报错；iframe 内部页面已自动带上频道号（截图 `screenshots/10-watch-real-channel.png`）。
+
 ---
 
 *本文档由 A 维护；规范变更走 PR（§3.5）。配套架构图与时间线见项目会话记录。*
