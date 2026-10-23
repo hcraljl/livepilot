@@ -17,6 +17,7 @@ import { config } from '../config.ts';
 import { copilotRouter } from './copilot.ts';
 import { commandRouter } from './command.ts';
 import { broadcastRouter } from './broadcast.ts';
+import { productsRouter } from './products.ts';
 import {
   POLYV_API_OPERATIONS,
   POLYV_COMMON_AUTH_PARAMS,
@@ -328,3 +329,6 @@ apiRouter.use('/', commandRouter);
 
 // 真实开播：官方 get-push-url + 本机 ffmpeg 推流（观众端真的能看见画面）
 apiRouter.use('/', broadcastRouter);
+
+// 商品库：让 push_product 从「必降级成公告」变成「真的能推」 @since v1.1.0
+apiRouter.use('/', productsRouter);

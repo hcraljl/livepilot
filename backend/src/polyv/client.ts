@@ -56,6 +56,15 @@ export class PolyvClient {
   /** 运行时指定的频道号（演示现场可临时切换，空 = 用 .env） */
   private runtimeChannelId = '';
 
+  /**
+   * 运行时回填的账号侧资源（目前只有 productId）@since v1.1.0
+   *
+   * 为什么需要：config 是 `as const` 的只读对象，但商品可以由本服务自己创建
+   * （POST /product/add），拿到 productId 后必须让下一次 push_product 立即生效，
+   * 而不是等到改完 .env 重启进程。这里沿用 runtimeChannelId 的模式：运行时值优先。
+   */
+  private runtimeResources: Partial<Record<ResourceKey, string>> = {};
+
   /** 生效的频道号：运行时指定优先，其次 .env */
   get channelId(): string {
     return this.runtimeChannelId || config.polyv.channelId;
@@ -65,6 +74,18 @@ export class PolyvClient {
   setChannelId(channelId: string): string {
     this.runtimeChannelId = channelId.trim();
     return this.channelId;
+  }
+
+  /** 运行时回填某个账号侧资源 ID（.env 之外的新来源：本服务自己创建出来的） @since v1.1.0 */
+  setResource(key: ResourceKey, value: string): void {
+    const v = value.trim();
+    if (!v) delete this.runtimeResources[key];
+    else this.runtimeResources[key] = v;
+  }
+
+  /** 读取某个资源 ID：运行时回填优先，其次 .env */
+  resource(key: ResourceKey): string {
+    return this.runtimeResources[key] ?? config.polyv.resources[key] ?? '';
   }
 
   get isReal(): boolean {
@@ -110,11 +131,10 @@ export class PolyvClient {
 
   /** 当前账号侧资源齐备情况：真实模式的能力边界一目了然 */
   resourceStatus() {
-    const r = config.polyv.resources;
     return {
-      questionId: Boolean(r.questionId),
-      cardPushId: Boolean(r.cardPushId),
-      productId: Boolean(r.productId),
+      questionId: Boolean(this.resource('questionId')),
+      cardPushId: Boolean(this.resource('cardPushId')),
+      productId: Boolean(this.resource('productId')),
     };
   }
 
@@ -175,9 +195,9 @@ export class PolyvClient {
 
     const status = this.resourceStatus();
     const resources = {
-      questionId: config.polyv.resources.questionId || '<QUESTION_ID>',
-      cardPushId: config.polyv.resources.cardPushId || '<CARD_PUSH_ID>',
-      productId: config.polyv.resources.productId || '<PRODUCT_ID>',
+      questionId: this.resource('questionId') || '<QUESTION_ID>',
+      cardPushId: this.resource('cardPushId') || '<CARD_PUSH_ID>',
+      productId: this.resource('productId') || '<PRODUCT_ID>',
     };
 
     const missing = (spec.requires ?? []).filter((k) => !status[k]);

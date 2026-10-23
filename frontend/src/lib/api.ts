@@ -21,13 +21,16 @@ import type {
   ActionReq,
   ActionType,
   BroadcastStatus,
+  ChannelProduct,
   ClientLaunchInfo,
   CopilotCandidatesResp,
+  CreateProductReq,
   Decision,
   LiveEvent,
   LiveState,
   Mode,
   PolyvCallResult,
+  ProductListResp,
   ReplayResp,
   StartBroadcastReq,
   StartSimReq,
@@ -297,3 +300,28 @@ export const stopBroadcast = (): Promise<BroadcastStatus> => post<BroadcastStatu
  * 前端拿到后直接跳转即可唤起本机客户端（直播伴侣），客户端可直接用摄像头/麦克风开播。
  */
 export const fetchClientLaunch = (): Promise<ClientLaunchInfo> => get<ClientLaunchInfo>('/api/broadcast/client');
+
+/* ---- 商品库：让 push_product 从「必降级成公告」变成「真的推商品」 @since v1.1.0 ---- */
+
+/** GET /api/products —— 频道商品库列表 + 当前生效的商品 ID */
+export const fetchProducts = (): Promise<ProductListResp> => get<ProductListResp>('/api/products');
+
+/**
+ * POST /api/products —— 在频道商品库里新建商品并回填 productId
+ *
+ * 注意：这条路要求账号已开通商品库（企业认证）。未开通时服务端返回 400，
+ * error 里是翻译成人话的开通指引，界面直接展示即可。
+ */
+export const createProduct = (req: CreateProductReq): Promise<{ product: ChannelProduct; created: boolean }> =>
+  post<{ product: ChannelProduct; created: boolean }>('/api/products', req);
+
+/**
+ * POST /api/products/ensure —— 确保有一个可推商品（有就复用，没有才建）
+ *
+ * 演示现场的兜底：不想先去后台手动建品就点这个。
+ * req 传 { name, realPrice } 可指定建哪个商品，缺省用第一个演示商品。
+ */
+export const ensureProduct = (
+  req?: CreateProductReq,
+): Promise<{ product: ChannelProduct; created: boolean }> =>
+  post<{ product: ChannelProduct; created: boolean }>('/api/products/ensure', req ?? {});

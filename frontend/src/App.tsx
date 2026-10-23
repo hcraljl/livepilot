@@ -15,6 +15,7 @@ import { ControlBar } from './components/ControlBar';
 import { CommandBar } from './components/CommandBar';
 import { MetricCards } from './components/MetricCards';
 import { Funnel } from './components/Funnel';
+import { InteractionPanel } from './components/InteractionPanel';
 import { ProductRanking } from './components/ProductRanking';
 import { InteractionTimeline } from './components/InteractionTimeline';
 import { DecisionStream } from './components/DecisionStream';
@@ -79,6 +80,8 @@ export default function App() {
               <ControlBar state={state} onLiveStarted={() => setWatchOpenSignal((n) => n + 1)} />
               {/* 指挥台：运营说一句 → AI 解析 → 立即/定时执行 @since v0.7.0 */}
               <CommandBar state={state} />
+              {/* 互动区：运营手动发起互动（首个能力：推送商品） @since v1.1.0 */}
+              <InteractionPanel state={state} />
               <MetricCards state={state} />
               <div className="grid gap-3 lg:grid-cols-2">
                 <Funnel funnel={state?.funnel ?? null} />

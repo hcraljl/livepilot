@@ -228,6 +228,8 @@ export interface ActionReq {
   channelId?: string;
   rule?: string;
   reason?: string;
+  /** 决策卡片标题（手动触发时给运营看的一句话，缺省由后端按动作生成） @since v1.1.0 */
+  title?: string;
   params?: Record<string, unknown>;
 }
 
@@ -469,6 +471,49 @@ export interface StartBroadcastReq {
  * 屏幕共享、多场景切换，比后端合成的画面真实得多，也更贴合保利威生态。
  * 前端点击按钮后把浏览器导航到这个 scheme，操作系统会唤起本机已安装的客户端。
  */
+/**
+ * 保利威频道商品库里的一个商品 @since v1.1.0
+ *
+ * productId 是账号侧实体 ID：push_product 动作必须有它才能真推，
+ * 缺了就会降级成公告。它是服务端用 product/add 建出来的，前端不能编。
+ */
+export interface ChannelProduct {
+  productId: string;
+  name: string;
+  /** 实际价格（元） */
+  realPrice: number;
+  /** 商品封面链接 */
+  cover: string;
+  /** 跳转链接 */
+  link: string;
+  /** 1 上架 / 2 下架 */
+  status: number;
+}
+
+/** POST /api/products 的请求体 @since v1.1.0 */
+export interface CreateProductReq {
+  name: string;
+  /** 实际价格（元） */
+  realPrice: number;
+  /** 商品封面（不传用占位图） */
+  cover?: string;
+  /** 跳转链接（不传用占位链接） */
+  link?: string;
+  productDesc?: string;
+}
+
+/** GET /api/products 的响应 @since v1.1.0 */
+export interface ProductListResp {
+  products: ChannelProduct[];
+  /** 当前生效的商品 ID（推送时由它决定打哪个） */
+  productId: string;
+  /** true = 演练模式，列表是虚拟商品，不会真的触及账号 */
+  dryRun: boolean;
+  channelId: string;
+  /** 可选的演示商品（商品库为空时用它一件到位地创建） */
+  presets: CreateProductReq[];
+}
+
 export interface ClientLaunchInfo {
   /**
    * 完整 scheme，前端直接 location.href = scheme。
