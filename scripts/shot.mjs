@@ -113,21 +113,31 @@ for (const label of clickQueue) {
     (() => {
       const target = ${JSON.stringify(label)};
       const nodes = [...document.querySelectorAll('button, a, div, span')];
-      const hits = nodes.filter((n) => n.textContent.trim() === target);
-      const pool = hits.length > 0 ? hits : nodes.filter((n) => n.textContent.includes(target));
+      const exact = nodes.filter((n) => n.textContent.trim() === target);
+      const pool0 = exact.length > 0 ? exact : nodes.filter((n) => n.textContent.includes(target));
+      // 优先点可交互元素（button/a）：标题文字与按钮文字相同时，面积最小策略会点到标题上。
+      // 实测教训：「推送商品」这个文案在标题和按钮里都有，面积最小选中的是标题。
+      const clickable = pool0.filter((n) => n.closest('button, a'));
+      const pool = clickable.length > 0 ? clickable : pool0;
       // 取面积最小的命中元素：文字相同时外层容器也会命中，
       // 点容器中心往往落在空白处（实测会点到旁边的留白）
       let best = null;
+      const debug = [];
+      for (const n of pool.slice(0, 6)) {
+        const r = n.getBoundingClientRect();
+        debug.push(n.tagName + '@(' + Math.round(r.x) + ',' + Math.round(r.y) + ') ' + Math.round(r.width) + 'x' + Math.round(r.height));
+      }
       for (const n of pool) {
         const r = n.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
         const area = r.width * r.height;
         if (!best || area < best.area) best = { area, x: r.x + r.width / 2, y: r.y + r.height / 2 };
       }
-      return best ? { x: best.x, y: best.y } : null;
+      return best ? { x: best.x, y: best.y, hits: pool0.length, clickable: clickable.length, debug } : null;
     })()`;
   const rr = await send('Runtime.evaluate', { expression: rectExpr, returnByValue: true });
   const pt = rr.result?.result?.value;
+  if (pt?.debug) console.log(`  [click-debug] 「${label}」命中 ${pt.hits} 个 / 可交互 ${pt.clickable} 个 → ${pt.debug.join(' ; ')}`);
   if (!pt) {
     console.log(`点击「${label}」→ NOT_FOUND`);
     continue;

@@ -18,8 +18,8 @@
  * 负责人：B · @since v1.1.0
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { ChannelProduct, CreateProductReq, LiveState, PolyvCallResult } from '@livepilot/shared';
-import { createProduct, ensureProduct, fetchProducts, triggerAction } from '../lib/api';
+import type { BroadcastStatus, ChannelProduct, CreateProductReq, LiveState, PolyvCallResult } from '@livepilot/shared';
+import { createProduct, ensureProduct, fetchBroadcast, fetchProducts, triggerAction } from '../lib/api';
 
 /** 推送卡片样式：bottomCard 贴底不挡画面，演示时最稳 */
 const PUSH_CARD_TYPE = 'bottomCard';
@@ -48,6 +48,31 @@ export function InteractionPanel({ state }: { state: LiveState | null }) {
     } catch {
       /* 后端未起时静默，不打扰演播现场 */
     }
+  }, []);
+
+  /**
+   * 「频道在直播」的判定单独走 broadcast，**不能**用 state.running ——
+   * 那个是模拟器的开关。实测踩到的坑：客户端真实开播时模拟器已经让位
+   * （running=false），如果按 running 禁用按钮，就会出现「频道明明在播，
+   * 商品却推不出去」——商品是推给真实观众的，跟模拟器跑没跑毫无关系。
+   */
+  const [bc, setBc] = useState<BroadcastStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async (): Promise<void> => {
+      try {
+        const s = await fetchBroadcast();
+        if (!cancelled) setBc(s);
+      } catch {
+        /* 静默 */
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -132,7 +157,8 @@ export function InteractionPanel({ state }: { state: LiveState | null }) {
   }, [presets, presetIdx, refresh]);
 
   const busy = phase === 'busy';
-  const running = state?.running === true;
+  // 直播中 = 模拟器在跑（演示） 或 频道真的在播（客户端/ffmpeg 推流）。任一成立都能推。
+  const running = state?.running === true || bc?.channelLive === true;
   const hasProduct = productId !== '' || products.length > 0;
   const active = products.find((p) => p.productId === productId) ?? products[0] ?? null;
 
