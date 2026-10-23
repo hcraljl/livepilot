@@ -8,12 +8,11 @@
  *   card-push     https://help.polyv.net/live/api/v4/channel/market/cardPush/push/
  *   push-product  https://help.polyv.net/live/api/channel/operate/push_channel_product/
  *   notice        https://help.polyv.net/live/api/v4/chat/notice_add/
- *   coupon        https://help.polyv.net/live/api/v4/channel/coupon/create/
  *
  * ⚠️ 三个高频踩坑点（已按官方示例规避）：
  *  1) 抽奖路径是全小写 + 连字符：lottery-activity，不是 lottery_activity（后者 404）；
  *  2) 认证参数 appId/timestamp/sign 走 query，且「只对 query 里的参数签名」——
- *     官方 coupon / checkin / card-push 的示例里，业务参数放在 body 且不参与签名；
+ *     官方 checkin / card-push 的示例里，业务参数放在 body 且不参与签名；
  *  3) lottery / checkin 的 body 是 JSON（不是 form），push-product 的 body 是 form。
  */
 import type { ActionType } from '../../../shared/types.ts';

@@ -4,9 +4,9 @@
  * 设计原则（2026-10-22 按官方文档逐接口核对后重写）：
  * 1. 路径 / 字段名 / body 编码全部照官方示例，不做「看起来合理」的猜测；
  * 2. 认证参数 appId/timestamp/sign 只签名「参与签名的参数集」：
- *      - signScope='query'：业务参数在 body 且不参与签名（coupon / checkin / card-push / lottery）
+ *      - signScope='query'：业务参数在 body 且不参与签名（checkin / card-push / lottery）
  *      - signScope='all'  ：全部字段一起签（notice / question / push-product）
- * 3. 账号侧资源 ID（questionId / cardPushId / productId / couponIds）缺失时**直接拒绝发送**，
+ * 3. 账号侧资源 ID（questionId / cardPushId / productId）缺失时**直接拒绝发送**，
  *    并返回可执行的修复提示 —— 绝不把脏请求打到真实频道；
  * 4. appSecret 只在本文件与 sign.ts 之间流动，永不出现在返回值 / 日志 / HTTP 响应里。
  */
