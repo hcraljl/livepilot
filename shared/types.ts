@@ -458,10 +458,18 @@ export interface StartBroadcastReq {
  * 前端点击按钮后把浏览器导航到这个 scheme，操作系统会唤起本机已安装的客户端。
  */
 export interface ClientLaunchInfo {
-  /** 完整 scheme，前端直接 location.href = scheme */
+  /**
+   * 完整 scheme，前端直接 location.href = scheme。
+   * 形如 `polyvlive://start?pdn=api.polyv.net&channelId=8659539&passwd=xxx` ——
+   * 带频道号与开播密码，客户端会直接进入该频道的开播界面。
+   */
   scheme: string;
   /** 客户端是否已在本机注册（无法可靠探测，恒为 null，前端用失焦事件判断） */
   installed: boolean | null;
+  /** scheme 里带的频道号（= 运行时频道号，切频道后会变） @since v0.9.1 */
+  channelId: string;
+  /** scheme 里是否带了开播密码（后端配了 POLYV_CLIENT_PASSWD 才为 true） @since v0.9.1 */
+  withPasswd: boolean;
   /** 提示文案：唤起后要引导用户在客户端点「开始直播」 */
   hint: string;
 }

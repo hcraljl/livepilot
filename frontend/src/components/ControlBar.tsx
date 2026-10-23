@@ -3,8 +3,12 @@
  * 对应 A-09 前半；模式与阈值在 StrategyPanel
  *
  * v0.9.0：开播主路径改为**保利威客户端**
- *   点「客户端开播」→ 浏览器跳 polyvlive://start?pdn=api.polyv.net → 操作系统唤起本机直播伴侣
- *   → 在客户端里选摄像头 / 麦克风 / 屏幕共享开播（这是保利威自己的工具，场景最丰富、最贴合生态）。
+ *   点「客户端开播」→ 浏览器跳
+ *     polyvlive://start?pdn=api.polyv.net&channelId=<频道号>&passwd=<频道开播密码>
+ *   → 操作系统唤起本机直播伴侣，**直接进入该频道的开播界面**（免去在客户端里找频道）
+ *   → 在客户端里选摄像头 / 麦克风 / 屏幕共享开播（保利威自己的工具，场景最丰富、最贴合生态）。
+ *   地址里的 channelId / passwd 由后端 GET /api/broadcast/client 拼好下发（v0.9.1），
+ *   前端不硬编码频道号，也不保存密码。
  *   唤起后本组件会持续回读官方 get-streams，频道一旦 live 就自动弹出观众端 ——
  *   所以「客户端开播」这件事在驾驶舱里也是可见、可追踪的，不是一次性的跳出。
  *
@@ -170,8 +174,10 @@ export function ControlBar({ state, onLiveStarted }: ControlBarProps) {
       setHint(
         focusLeft
           ? `${info.hint}。开播后这里会自动变成「直播中」并弹出观众端`
-          : `已发送唤起请求（${info.scheme}）。如果客户端窗口没出现，通常是本机未安装保利威直播伴侣，` +
-              `或浏览器拦截了外部协议 —— 可改用「AI 演示推流」。仍在后台等待频道开播…`,
+          : // 提示里要脱敏：scheme 带 passwd，截图/录屏时不该把密码露出去
+            `已发送唤起请求（${info.scheme.replace(/([?&]passwd=)[^&]*/, '$1***')}）。` +
+              `如果客户端窗口没出现，通常是本机未安装保利威直播伴侣，或浏览器拦截了外部协议 —— ` +
+              `可改用「AI 演示推流」。仍在后台等待频道开播…`,
       );
     } catch (e) {
       setHint(`唤起客户端失败：${e instanceof Error ? e.message : String(e)}`);
@@ -225,7 +231,7 @@ export function ControlBar({ state, onLiveStarted }: ControlBarProps) {
         title={
           bcActive
             ? '本机 ffmpeg 正在推流，同一频道不能两个推流端 —— 请先「停止推流」'
-            : '唤起本机保利威开播客户端（直播伴侣），在客户端里用摄像头 / 麦克风 / 屏幕共享开播'
+            : '唤起本机保利威客户端并直接进入当前频道的开播界面（地址带频道号与开播密码），在客户端里用摄像头 / 麦克风 / 屏幕共享开播'
         }
         className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
       >
@@ -297,6 +303,7 @@ export function ControlBar({ state, onLiveStarted }: ControlBarProps) {
         <span className="flex items-center gap-1.5 rounded-md bg-warn-50 px-2 py-1 text-xs font-medium text-warn-800">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warn-500" />
           等待客户端开播…
+          {bc?.channelId && <span className="font-normal text-gray-500">频道 {bc.channelId}</span>}
         </span>
       )}
 

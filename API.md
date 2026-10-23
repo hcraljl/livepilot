@@ -426,12 +426,20 @@ interface LiveState {
 保利威自己的开播工具支持摄像头、麦克风、屏幕共享、多场景切换、贴片等能力，比后端能合成的画面丰富得多，也更贴合保利威生态。所以前端「客户端开播」按钮并不调用任何开播 API，而是**唤起本机客户端**：
 
 ```
-点击按钮 → location.href = polyvlive://start?pdn=api.polyv.net
+点击按钮 → location.href =
+        polyvlive://start?pdn=api.polyv.net&channelId=8659539&passwd=<频道开播密码>
         → 操作系统按协议注册表唤起 polyvlive64.exe（保利威直播伴侣）
+        → 客户端凭 channelId + passwd **直接进入该频道的开播界面**（不用再在客户端里找频道）
         → 主播在客户端里选摄像头/麦克风，点「开始直播」
         → 客户端把流推到频道 → 官方 get-streams 回读 live=true
         → 驾驶舱自动变为「直播中 · 客户端推流」，并自动弹出观众端
 ```
+
+`channelId` 与 `passwd` **由后端拼**（`broadcast.clientSchemeFor`），不是前端硬编码：
+
+- `channelId` 取**运行时**频道号 —— 切换频道后唤起地址自动跟着变；
+- `passwd` 取 `.env` 的 `POLYV_CLIENT_PASSWD` —— 密码不入库、不写日志、不进前端代码；
+- 基址里若已含这些参数则不重复拼（支持直接配一条完整 URL）。
 
 本机验证过协议已注册（Windows 注册表 `HKEY_CLASSES_ROOT\polyvlive` →
 `C://hcr//PolyvLive//PolyvLive64//bin//64bit//polyvlive64.exe`）。
@@ -440,17 +448,25 @@ interface LiveState {
 
 ```json
 { "ok": true, "data": {
-  "scheme": "polyvlive://start?pdn=api.polyv.net",
+  "scheme": "polyvlive://start?pdn=api.polyv.net&channelId=8659539&passwd=<频道开播密码>",
   "installed": null,
-  "hint": "已唤起保利威客户端，请在客户端里选择摄像头/麦克风并点击「开始直播」"
+  "channelId": "8659539",
+  "withPasswd": true,
+  "hint": "已带上频道 8659539 的开播密码，客户端会直接进该频道的开播界面"
 } }
 ```
 
 | 字段 | 说明 |
 | --- | --- |
-| `scheme` | 完整唤起地址，由后端 `POLYV_CLIENT_SCHEME` 配置驱动，前端直接跳转 |
+| `scheme` | **完整可用的唤起地址**（含 `channelId` + `passwd`），前端直接跳转 |
 | `installed` | **恒为 `null`**：浏览器没有任何 API 能查询自定义协议是否已注册，前端用「页面失焦」间接判断 |
+| `channelId` | scheme 里带的频道号（= 运行时频道号） |
+| `withPasswd` | 是否带了开播密码（配了 `POLYV_CLIENT_PASSWD` 才为 `true`） |
 | `hint` | 唤起后的引导文案，前端直接展示 |
+
+> **密码边界**：`passwd` 会随这个接口下发给浏览器（客户端必须靠它直接进入开播界面，无法避免），
+> 但仍然只出现在这一个接口里 —— 高频轮询的 `GET /api/broadcast` 只返回不含参数的基址 `clientScheme`，
+> 前端提示文案里也会把 `passwd` 脱敏成 `***`，避免截图/录屏泄露。
 
 #### 前端唤起实现（`components/ControlBar.tsx`）
 
@@ -536,7 +552,8 @@ interface LiveState {
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `POLYV_CLIENT_SCHEME` | `polyvlive://start?pdn=api.polyv.net` | 客户端唤起地址；私有化部署改这里的 `pdn` 域名 |
+| `POLYV_CLIENT_SCHEME` | `polyvlive://start?pdn=api.polyv.net` | 客户端唤起**基址**；私有化部署改这里的 `pdn` 域名 |
+| `POLYV_CLIENT_PASSWD` | 空 | 频道开播密码，拼成 scheme 的 `passwd` 参数；**属凭证，只放 .env** |
 | `POLYV_BROADCAST_ENABLED` | `true` | 关掉则真实开播直接拒绝（彩排怕误触时用） |
 | `POLYV_FFMPEG_PATH` | `ffmpeg` | ffmpeg 不在 PATH 时写绝对路径 |
 | `POLYV_BROADCAST_FILE` | 空 | 指定本地视频则循环推它，等价于每次 start 都带 `file` |

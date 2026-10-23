@@ -57,13 +57,25 @@ export const config = {
   },
 
   /**
-   * 保利威开播客户端（直播伴侣）的 URL Scheme @since v0.9.0
+   * 保利威开播客户端（直播伴侣）的 URL Scheme **基址** @since v0.9.0
    *
    * 点击前端「客户端开播」会把这个地址交给浏览器，由操作系统唤起本机客户端。
    * 客户端能直接调摄像头 / 麦克风 / 屏幕共享 —— 比后端合成画面真实，也更贴合保利威生态。
    * 换成私有化部署时改这里即可（pdn 指向自己的 API 域名）。
+   *
+   * 注意这只是基址：`channelId` 与 `passwd` 由后端在请求时动态拼（见 broadcast.clientSchemeFor），
+   * 这样切换频道后唤起地址会自动跟着变，密码也不会写死在前端代码里。
    */
   clientScheme: str('POLYV_CLIENT_SCHEME', 'polyvlive://start?pdn=api.polyv.net'),
+
+  /**
+   * 频道的开播密码（客户端 scheme 里的 passwd 参数）@since v0.9.1
+   *
+   * 只有「设了密码」的频道才需要。它会被拼进唤起地址下发给浏览器 ——
+   * 这不可避免（客户端要靠它直接进入开播界面），但仍属于凭证，
+   * 所以只放在 .env（不入库），且不写进日志。
+   */
+  clientPasswd: str('POLYV_CLIENT_PASSWD'),
 
   /**
    * 真实开播：本机 ffmpeg 推流到保利威频道。

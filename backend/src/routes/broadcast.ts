@@ -42,12 +42,19 @@ broadcastRouter.get('/broadcast', async (_req, res) => {
  * 客户端里能直接用摄像头 / 麦克风 / 屏幕共享开播，比后端合成画面真实得多。
  */
 broadcastRouter.get('/broadcast/client', (_req, res) => {
+  const channelId = polyvClient.channelId;
+  const withPasswd = config.clientPasswd !== '';
   res.json(
     ok({
-      scheme: config.clientScheme,
+      // 带 channelId + passwd：客户端会跳过频道选择，直接进这个频道的开播界面
+      scheme: broadcast.clientSchemeFor(channelId),
       // 浏览器无法探测自定义协议是否已注册，只能靠「页面失焦」间接判断，故返回 null
       installed: null,
-      hint: '已唤起保利威客户端，请在客户端里选择摄像头/麦克风并点击「开始直播」',
+      channelId,
+      withPasswd,
+      hint: withPasswd
+        ? `已带上频道 ${channelId} 的开播密码，客户端会直接进该频道的开播界面`
+        : `已唤起客户端（频道 ${channelId}），请在客户端里选择摄像头/麦克风并点击「开始直播」`,
     }),
   );
 });

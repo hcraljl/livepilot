@@ -91,6 +91,32 @@ class BroadcastService {
     return this.ffmpegReady;
   }
 
+  /**
+   * 拼出「直接进入某个频道开播界面」的完整唤起地址 @since v0.9.1
+   *
+   * 形如：polyvlive://start?pdn=api.polyv.net&channelId=8659539&passwd=<开播密码>
+   * 客户端认这套参数后会跳过频道选择，直接进该频道的开播界面。
+   *
+   * - `channelId` 取**运行时**频道号：切了频道，唤起地址自动跟着变；
+   * - `passwd` 取 POLYV_CLIENT_PASSWD，没配就不拼（无密码频道）；
+   * - 基址里已经写过的参数不重复拼，方便有人直接配一整个自定义 URL。
+   *
+   * 注意：返回值含频道开播密码，属凭证 —— 只在 GET /api/broadcast/client 下发，
+   * 不要写进日志，也不要塞进高频轮询的 status()。
+   */
+  clientSchemeFor(channelId = polyvClient.channelId): string {
+    const base = config.clientScheme;
+    const extra: string[] = [];
+    if (channelId !== '' && !/[?&]channelId=/.test(base)) {
+      extra.push(`channelId=${encodeURIComponent(channelId)}`);
+    }
+    if (config.clientPasswd !== '' && !/[?&]passwd=/.test(base)) {
+      extra.push(`passwd=${encodeURIComponent(config.clientPasswd)}`);
+    }
+    if (extra.length === 0) return base;
+    return `${base}${base.includes('?') ? '&' : '?'}${extra.join('&')}`;
+  }
+
   /** 取官方推流地址（含时效签名；只在本进程内存中使用） */
   private async fetchPushUrl(): Promise<string> {
     const qs = new URLSearchParams(
@@ -317,6 +343,7 @@ class BroadcastService {
       profile: `${config.broadcast.width}x${config.broadcast.height} @${config.broadcast.fps}fps ${config.broadcast.bitrate}`,
       // 频道在播但本服务的 ffmpeg 没在推 → 是别的推流端（最典型就是保利威客户端）
       externalLive: this.channelLive === true && !active,
+      // 只给基址：带 channelId/passwd 的完整地址走 GET /api/broadcast/client（避免密码在轮询里反复出现）
       clientScheme: config.clientScheme,
     };
   }
