@@ -468,12 +468,33 @@ interface LiveState {
 > 但仍然只出现在这一个接口里 —— 高频轮询的 `GET /api/broadcast` 只返回不含参数的基址 `clientScheme`，
 > 前端提示文案里也会把 `passwd` 脱敏成 `***`，避免截图/录屏泄露。
 
-#### 前端唤起实现（`components/ControlBar.tsx`）
+#### 前端唤起实现（`components/ControlBar.tsx` + `components/ClientLaunchDialog.tsx`）
 
-- 用 `<a href={scheme}>` 的 `click()` 触发，而不是 `window.open` —— 自定义协议必须在**用户手势**的调用栈里触发；
+**v0.9.2 起不再是「点按钮直接跳」，而是带对话框的四步交互**（状态在 ControlBar，`ClientLaunchDialog` 只负责呈现）：
+
+```
+点「客户端开播」 ── 打开对话框 ──▶ idle       预先拉 GET /api/broadcast/client，讲清楚会发生什么
+        │ 点「打开保利威客户端」
+        ▼
+                            launching    同步 <a href=scheme>.click()（用户手势栈内）+ 顺手拉起 sim
+                                         ─ 2.5 秒失焦观察：失焦 ⇒ 客户端窗口已接管
+        ▼
+                            waiting      每秒倒计时（默认 3 分钟），关闭对话框**不等于取消等待**
+        ▼                                后台继续轮询 GET /api/broadcast
+    externalLive=true
+        ▼
+                            live         成功卡片停留 1.5 秒 → 关闭对话框 → 自动弹观众端
+   超时未转 live  ▸ timeout              给排查步骤与两条退路：重新唤起 / 改用「AI 演示推流」
+   取地址失败    ▸ error                 通常是后端没起，重试即可
+```
+
+- **scheme 必须预取**：自定义协议要求导航发生在**用户手势**的调用栈里。若等到点确认再去 `fetch`，
+  `await` 会让这份手势失效、浏览器可能判定为脚本自发行为而拦截 —— 所以打开对话框时就取好，
+  点确认时同步调用 `<a>.click()`（不用 `window.open`）；
 - 唤起后观察 2.5 秒内页面是否失焦（`blur` / `visibilitychange`），失焦说明客户端窗口抢了焦点；
-- **判定失败不代表没装**（部分系统不触发 blur），所以无论是否失焦都继续轮询 `/api/broadcast`，真的开播了照样自动弹观众端，只是提示文案不同；
+- **判定失败不代表没装**（部分系统不触发 blur），所以无论是否失焦都继续等待，只是结论文案不同 —— 真的开播了照样自动弹观众端；
 - 点击时若虚拟观众数据没在跑，会顺手 `POST /api/sim/start`（客户端只管推画面，驾驶舱指标还得有数据）；
+- 等待期内 ControlBar 的黄色徽章显示剩余时间，点它可以随时回到对话框（此时回到「等待」页，不会退回确认页从头再来）；
 - 唤起后最多等 3 分钟，超时停止追问并提示去客户端确认。
 
 #### `externalLive`：让「客户端开播」在驾驶舱里可见
