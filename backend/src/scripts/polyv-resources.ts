@@ -5,8 +5,8 @@
  *   npm run polyv:res -w backend
  *   npm run polyv:res -w backend -- --channel 8659539
  *
- * 查询四类资源的真实清单（商品 / 优惠券 / 推送卡片 / 抽奖活动），
- * 并给出 .env 里该填什么；为空则明确说明「该动作会降级」。
+ * 输出四类资源的真实清单（商品 / 优惠券 / 推送卡片 / 抽奖活动），
+ * 以及在 .env 里该填成什么样；为空会明确说明「该动作只能降级」。
  */
 import { config } from '../config.ts';
 import { polyvClient } from '../polyv/client.ts';
@@ -124,19 +124,17 @@ for (const p of PROBES) {
   if (items.length > 8) console.log(`    … 其余 ${items.length - 8} 条省略`);
   if (p.envKey) {
     const ids = items.map((x) => x.id);
-    summary.push(`${p.envKey}=${p.envKey === 'POLYV_COUPON_IDS' ? ids.join(',') : ids[0]}`);
+    const v = p.envKey === 'POLYV_COUPON_IDS' ? ids.join(',') : ids[0];
+    summary.push(`${p.envKey}=${v}`);
   }
 }
 
 console.log(`\n${LINE}`);
-if (summary.some((s) => s.includes('='))) {
+if (summary.length) {
   console.log('可直接粘进 backend/.env：\n');
-  for (const s of summary.filter((x) => x.includes('='))) console.log(`  ${s}`);
-}
-const missing = summary.filter((s) => s.includes('→'));
-if (missing.length) {
-  console.log('\n以下资源账号里还没有，真实模式下对应动作会自动降级：\n');
-  for (const s of missing) console.log(`  ${s}`);
+  for (const s of summary) console.log(`  ${s}`);
+} else {
+  console.log('账号里还没有可用的商品 / 优惠券 / 卡片，真实模式下这三个动作会自动降级。');
 }
 console.log(`${LINE}\n`);
 process.exit(0);

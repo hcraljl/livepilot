@@ -15,7 +15,7 @@ const BASE = process.env.BASE ?? 'http://127.0.0.1:4000';
 
 /**
  * 按官方规则给回调签名。
- * 配了 appSecret 后 webhook 会强制验签，测试里的假回调必须自己签，否则会被直接丢弃。
+ * 配了 appSecret 后 webhook 会强制验签，测试里的假回调必须自己签，否则会被丢弃。
  */
 const signWebhook = (body: Record<string, unknown>): Record<string, unknown> => {
   if (!config.polyv.appSecret) return body;
@@ -149,7 +149,7 @@ const main = async (): Promise<void> => {
   check('会话导出 /api/session/export', exp.json?.sessionId === sessionId && Array.isArray(exp.json.timeline));
 
   // 12. Webhook 下播 + 僵尸 tick 检查
-  // 频道号取自当前状态（.env 配了真实频道时不能硬编码，否则下播不命中）
+  // 频道号取自当前状态（.env 配了真实频道时不能硬编码，否则下播不会命中）
   const beforeEnd = await call('GET', '/api/state');
   const hookChannel = String(beforeEnd.json?.channelId ?? '1999999');
   await call('POST', '/polyv/webhook', signWebhook({ event: 'liveEnd', channelId: hookChannel }));
