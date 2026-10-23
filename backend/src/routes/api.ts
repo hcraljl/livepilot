@@ -232,8 +232,8 @@ apiRouter.get('/polyv/mode', (_req, res) => {
       useReal: polyvClient.isReal,
       dryRun: polyvClient.dryRun,
       credentialsReady: polyvClient.credentialsReady,
-      channelId: config.polyv.channelId || null,
-      label: polyvClient.isReal ? `真实频道 ${config.polyv.channelId}` : '模拟演练（不发真实请求）',
+      channelId: polyvClient.channelId || null,
+      label: polyvClient.isReal ? `真实频道 ${polyvClient.channelId}` : '模拟演练（不发真实请求）',
     }),
   );
 });
@@ -258,14 +258,14 @@ apiRouter.post('/polyv/mode', (req, res) => {
     'action',
     accepted && wantReal ? '切换为真实调用' : '切换为模拟演练',
     accepted && wantReal
-      ? `后续动作将真实请求频道 ${config.polyv.channelId}`
+      ? `后续动作将真实请求频道 ${polyvClient.channelId}`
       : '后续动作只产生模拟回执，不会打到保利威频道',
   );
   res.json(
     ok({
       useReal: polyvClient.isReal,
       dryRun: polyvClient.dryRun,
-      label: polyvClient.isReal ? `真实频道 ${config.polyv.channelId}` : '模拟演练（不发真实请求）',
+      label: polyvClient.isReal ? `真实频道 ${polyvClient.channelId}` : '模拟演练（不发真实请求）',
     }),
   );
 });
