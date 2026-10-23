@@ -98,6 +98,17 @@ export class PolyvClient {
     return true;
   }
 
+  /**
+   * 该动作在真实模式下缺哪些账号侧资源（空数组 = 可直接执行）。
+   * 用于决策执行前预检，避免把注定 10001 的请求打出去。
+   */
+  missingResources(action: ActionType): ResourceKey[] {
+    const spec = REAL_SPECS[action];
+    if (!spec) return [];
+    const status = this.resourceStatus();
+    return (spec.requires ?? []).filter((k) => !status[k]);
+  }
+
   /** 当前账号侧资源齐备情况：真实模式的能力边界一目了然 */
   resourceStatus() {
     const r = config.polyv.resources;

@@ -61,6 +61,16 @@ export const config = {
    */
   useRealPolyv: bool('USE_REAL_POLYV', false),
 
+  /**
+   * 真实模式下，若动作所需的账号侧资源（questionId / cardPushId / productId / couponIds）
+   * 未配置，是否自动降级为「同目的但不需要资源」的动作。
+   *
+   * 为什么默认开：不降级的话这些决策会必然失败（10001 参数为 null），
+   * 演示现场会看到一串失败；降级后互动仍能真实下发，且决策理由里会写明降级原因，
+   * 不会假装原本的动作成功了。资源配齐后不再触发降级。
+   */
+  autoDegrade: bool('POLYV_AUTO_DEGRADE', true),
+
   /** DeepSeek（C 的引擎层使用；此处只负责读取与透传，不参与逻辑） */
   deepseek: {
     apiKey: str('DEEPSEEK_API_KEY'),

@@ -5,10 +5,11 @@
  *   npm run polyv:live -- --dry     # 打印 8 个动作的真实请求预览（连 sign 都算好，只是不发）
  *   npm run polyv:live -- --fire    # 真的逐个发一遍（会在真实频道里产生互动，慎用）
  *   npm run polyv:live -- --fire --only bulletin,coupon
+ *   npm run polyv:live -- --fire --channel 1234568   # 临时指定频道，不改 .env
  *
  * 说明：--dry 与 --fire 走的是同一个 prepare()，保证「测的就是项目实际会发的请求」。
  */
-import { config, canUseRealPolyv } from '../config.ts';
+import { config } from '../config.ts';
 import { polyvClient } from '../polyv/client.ts';
 import { REAL_SPECS } from '../polyv/endpoints.ts';
 import type { ActionType } from '../../../shared/types.ts';
@@ -22,6 +23,11 @@ const val = (f: string): string | undefined => {
 
 const DRY = has('--dry');
 const FIRE = has('--fire');
+const CHANNEL = val('--channel');
+if (CHANNEL) {
+  polyvClient.setChannelId(CHANNEL);
+  console.log(`\n[参数] 频道号已临时切换为 ${CHANNEL}`);
+}
 const ONLY = val('--only')
   ?.split(',')
   .map((s) => s.trim())
@@ -35,9 +41,9 @@ line();
 console.log(`API 域名        ${config.polyv.apiBase}`);
 console.log(`appId           ${mask(config.polyv.appId)}`);
 console.log(`appSecret       ${mask(config.polyv.appSecret)}`);
-console.log(`channelId       ${config.polyv.channelId || '未配置'}`);
+console.log(`channelId       ${polyvClient.channelId || '未配置'}`);
 console.log(`USE_REAL_POLYV  ${config.useRealPolyv}`);
-console.log(`真实调用可用     ${canUseRealPolyv() ? '✅ 是' : '❌ 否'}`);
+console.log(`真实调用可用     ${polyvClient.credentialsReady ? '✅ 是' : '❌ 否'}`);
 line();
 
 const status = polyvClient.resourceStatus();
@@ -48,7 +54,7 @@ console.log(`  商品   productId    ${status.productId ? '✅' : '❌ 缺失'}`
 console.log(`  优惠券 couponIds    ${status.couponIds ? '✅' : '❌ 缺失'} ${config.polyv.resources.couponIds.join(',')}`);
 line();
 
-if (!canUseRealPolyv()) {
+if (!polyvClient.credentialsReady) {
   console.log('\n⚠️  当前无法发起真实调用，检查 backend/.env：');
   console.log('    POLYV_APP_ID / POLYV_APP_SECRET / POLYV_CHANNEL_ID 三项必须齐备');
   console.log('    USE_REAL_POLYV=true');
@@ -84,12 +90,12 @@ if (!FIRE) {
 }
 
 // ---------- 2. 真的发 ----------
-if (!canUseRealPolyv()) {
+if (!polyvClient.credentialsReady) {
   console.error('❌ 未配置真实账号，--fire 中止（避免误以为打过真实接口）');
   process.exit(1);
 }
 
-console.log('\n【真机发送】这些请求会真的作用在频道 ' + config.polyv.channelId + ' 上');
+console.log('\n【真机发送】这些请求会真的作用在频道 ' + polyvClient.channelId + ' 上');
 line();
 
 let okCount = 0;
