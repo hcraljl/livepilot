@@ -23,7 +23,6 @@ const ACTIONS: readonly string[] = [
   'push_card',
   'push_product',
   'bulletin',
-  'coupon',
 ];
 
 /** 与 shared/types.ts 的 DecisionStatus 一一对应（v1.1 含 failed） */

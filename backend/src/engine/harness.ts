@@ -292,9 +292,9 @@ async function smokeAi(): Promise<boolean> {
       },
       {
         experienceId: 'seed-closing-1',
-        experienceTitle: '剩余 5 分钟 GMV 不足：发券 + 公告逼单',
-        action: 'coupon',
-        label: '优惠券',
+        experienceTitle: '剩余 5 分钟 GMV 不足：公告逼单冲刺',
+        action: 'bulletin',
+        label: '公告',
         similarity: 0.2,
         priority: 0.1,
         source: 'review',
@@ -327,7 +327,7 @@ async function smokeAi(): Promise<boolean> {
             message: {
               content: JSON.stringify({
                 experienceId: 'not_exist',
-                action: 'coupon',
+                action: 'bulletin',
                 reason: '不存在的经验',
               }),
             },

@@ -214,13 +214,6 @@ export class LiveSimulator {
           danmakuAdd: 0.15,
           relief: 'cold_start',
         };
-      } else if (action === 'coupon') {
-        effect = {
-          onlineMul: 1.03,
-          ctrMul: 1.3,
-          convAdd: 0.05,
-          danmakuAdd: 0.05,
-        };
       } else if (action === 'bulletin') {
         effect = {
           onlineMul: 1.01,

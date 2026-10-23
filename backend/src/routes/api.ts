@@ -32,7 +32,6 @@ const ACTIONS: ActionType[] = [
   'push_card',
   'push_product',
   'bulletin',
-  'coupon',
 ];
 
 const ok = (data: unknown) => ({ ok: true, data });

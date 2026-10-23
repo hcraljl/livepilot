@@ -95,9 +95,13 @@ const main = async (): Promise<void> => {
 
   // 2. 能力清单
   const caps = await call('GET', '/api/polyv/capabilities');
+  // 7 个动作 = 8 个原有动作去掉已下线的 coupon
   check(
-    '能力清单 8 个动作 + 真实接口路径',
-    caps.json?.ok === true && caps.json.data.actions.length === 8 && caps.json.data.actions.every((a: any) => a.path.startsWith('/live/')),
+    '能力清单 7 个动作 + 真实接口路径',
+    caps.json?.ok === true &&
+      caps.json.data.actions.length === 7 &&
+      caps.json.data.actions.every((a: any) => a.path.startsWith('/live/')) &&
+      !caps.json.data.actions.some((a: any) => a.action === 'coupon'),
     `${caps.json?.data?.actions?.length ?? 0} 个`,
   );
 

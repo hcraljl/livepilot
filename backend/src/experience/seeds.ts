@@ -72,20 +72,20 @@ export const SEED_EXPERIENCES: ExperienceEntry[] = [
     id: 'seed-closing-1',
     source: 'review',
     createdAt: 1750300000000,
-    title: '剩余 5 分钟 GMV 不足：发券 + 公告逼单',
+    title: '剩余 5 分钟 GMV 不足：公告逼单冲刺',
     scenario:
-      '距离下播 5 分钟 GMV 仅达目标 45%，AI 自动发限时优惠券并推送逼单公告，制造紧迫感，冲刺成交增量 21.8 单。',
+      '距离下播 5 分钟 GMV 仅达目标 45%，AI 推送限时逼单公告（不发券），用截止时间与库存压力冲最后一波成交，增量 9.6 单。',
     rules: ['closing_push'],
-    actions: ['coupon', 'bulletin'],
+    actions: ['bulletin'],
     result: {
-      incrementalOrders: 21.8,
-      incrementalGmv: 2158,
-      liftPct: 1817,
+      incrementalOrders: 9.6,
+      incrementalGmv: 950,
+      liftPct: 780,
       confidence: 'low',
     },
     takeaways: [
-      '把优惠券前置到剩余 8 分钟，避免最后 5 分钟才逼单。',
-      '公告写清截止时间和优惠力度。',
+      '逼单公告提前到剩余 8 分钟发出，留出决策时间。',
+      '公告写清截止时间与专属价，避免只喊「快下单」没有信息量。',
     ],
   },
   {

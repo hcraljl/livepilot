@@ -92,9 +92,10 @@
 
 `POST /api/action`
 ```json
-{ "action": "coupon", "title": "运营手动发券", "params": { "couponValue": 30 } }
+{ "action": "bulletin", "title": "运营手动逼单", "params": { "content": "最后 5 分钟，专属价即将结束" } }
 ```
-`action` ∈ `lottery` | `welfare_lottery` | `answer_card` | `checkin` | `push_card` | `push_product` | `bulletin` | `coupon`
+`action` ∈ `lottery` | `welfare_lottery` | `answer_card` | `checkin` | `push_card` | `push_product` | `bulletin`
+（`coupon` 已按业务要求下线，不再出现在动作集合中）
 返回同 `decision/confirm`。
 
 ### 9. 事件流
@@ -235,7 +236,7 @@ interface Metrics {
 }
 
 type ActionType = 'lottery' | 'welfare_lottery' | 'answer_card' | 'checkin'
-                | 'push_card' | 'push_product' | 'bulletin' | 'coupon';
+                | 'push_card' | 'push_product' | 'bulletin';
 
 interface Decision {
   id: string;

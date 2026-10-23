@@ -4,7 +4,7 @@
  *   npm run polyv:live              # 只做连通性 + 签名校验（不会在频道里产生互动）
  *   npm run polyv:live -- --dry     # 打印 8 个动作的真实请求预览（连 sign 都算好，只是不发）
  *   npm run polyv:live -- --fire    # 真的逐个发一遍（会在真实频道里产生互动，慎用）
- *   npm run polyv:live -- --fire --only bulletin,coupon
+ *   npm run polyv:live -- --fire --only bulletin,lottery
  *   npm run polyv:live -- --fire --channel 1234568   # 临时指定频道，不改 .env
  *
  * 说明：--dry 与 --fire 走的是同一个 prepare()，保证「测的就是项目实际会发的请求」。
@@ -51,7 +51,6 @@ console.log('账号侧资源（真实模式下必需）：');
 console.log(`  答题卡 questionId   ${status.questionId ? '✅' : '❌ 缺失'}`);
 console.log(`  卡片   cardPushId   ${status.cardPushId ? '✅' : '❌ 缺失'}`);
 console.log(`  商品   productId    ${status.productId ? '✅' : '❌ 缺失'}`);
-console.log(`  优惠券 couponIds    ${status.couponIds ? '✅' : '❌ 缺失'} ${config.polyv.resources.couponIds.join(',')}`);
 line();
 
 if (!polyvClient.credentialsReady) {
@@ -82,7 +81,7 @@ line();
 if (!FIRE) {
   console.log('\n（仅为预览，未发送任何请求）');
   console.log('真机发送：npm run polyv:live -- --fire');
-  console.log('只发某几个：npm run polyv:live -- --fire --only bulletin,coupon\n');
+  console.log('只发某几个：npm run polyv:live -- --fire --only bulletin,lottery\n');
   if (!DRY) {
     console.log('　本脚本的连通性校验需要真实请求，请加 --fire 或 --dry 明确意图。\n');
   }

@@ -5,7 +5,7 @@
  *  ┌ 标题 / 状态徽章 / 切换频道
  *  ├ 播放器槽位：有频道号 → 嵌 B 的官方观看 SDK 页（/watch/index.html?channelId=…）
  *  │              无频道号 → 模拟画面占位（LIVE 角标 + 在线人数 + 当前讲解商品）
- *  └ 观众侧互动流：执行态决策 → 抽奖 / 答题卡 / 公告 / 商品推送 / 优惠券卡片
+ *  └ 观众侧互动流：执行态决策 → 抽奖 / 答题卡 / 公告 / 商品推送
  *
  * 关键修复（v0.5.0）：嵌入条件从 `source === 'polyv' && channelId` 改为**只看 channelId**。
  * 后端 `LiveState.source` 默认就是 'simulator'（只有以 source='polyv' 开会话才是 'polyv'），
@@ -36,7 +36,6 @@ const ACTION_TONE: Record<string, string> = {
   push_card: 'border-brand-200 bg-brand-50',
   push_product: 'border-success-200 bg-success-50',
   bulletin: 'border-gray-200 bg-gray-50',
-  coupon: 'border-danger-200 bg-danger-50',
 };
 
 /** 观众端只关心「已经发生」的互动（建议态观众看不到） @since v0.4.0 */

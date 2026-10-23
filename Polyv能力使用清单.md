@@ -21,15 +21,20 @@
 | 4 | 批量签到 | `POST /live/v4/chat/batch-checkin` | 无 | 规则「氛围激活」（备选动作） | 开场/冷场仪式感，留存抓手 |
 | 5 | 卡片推送 | `POST /live/v4/channel/card-push/push` | `POLYV_CARD_PUSH_ID` | 规则「留存保卫」组合动作 | 抽奖 + 卡片召回双打 |
 | 6 | 商品推送 / 弹层 | `POST /live/v3/channel/product/push-product` | `POLYV_PRODUCT_ID` | 规则「转化助推」 | 自动把主推品怼到观众眼前 |
-| 7 | 公告（跑马灯） | `POST /live/v4/chat/add-bullentin` | 无 | 规则「逼单」「异常兜底」 | 发券 + 公告逼单；推流抖动时安抚 |
-| 8 | 优惠券 | `POST /live/v4/channel/coupon/create` | `POLYV_COUPON_IDS` | 规则「逼单」（红包雨降级方案） | 末段 GMV 未达标 → 发券收割 |
+| 7 | 公告（跑马灯） | `POST /live/v4/chat/add-bullentin` | 无 | 规则「逼单」「异常兜底」 | 末段逼单公告冲刺；推流抖动时安抚 |
 
 > **与官方文档逐字段核对时修正的三个坑**（旧实现会直接失败）：
 > 1. 抽奖路径是全小写 + 连字符 `lottery-activity`，写成 `lottery_activity` 会 404；
 > 2. 抽奖必填 `activityName / lotteryCondition / amount / prizeName`，旧实现发的是 `lotteryTitle / lotteryDuration`（不存在）；
-> 3. `coupon` 与 `checkin` 的 body 是 **JSON**（不是 form），认证参数单独走 query 且**只对 query 签名**。
+> 3. `checkin` 的 body 是 **JSON 数组**（不是 form），认证参数单独走 query 且**只对 query 签名**；
+> 4. **抽奖**的 body 必须是 **JSON 对象**——用 form-urlencoded 会被拒
+>    （`10001 Content type 'application/x-www-form-urlencoded' not supported`），这一点联调时实测踩到。
 
-> **红包雨**：未检索到独立的服务端写入接口，已降级为「发券 + 公告逼单」，并在方案/设计树中如实标注，不假装支持。
+> **红包雨**：未检索到独立的服务端写入接口，已降级为「公告逼单 + 抽奖」，并在方案/设计树中如实标注，不假装支持。
+>
+> **优惠券**：`POST /live/v4/channel/coupon/create` 曾经接入并通过验签，
+> 但业务决定「不发放优惠券」，因此该动作已从动作集合中移除（8 动作 → 7 动作），
+> 逼单场景只用公告 + 抽奖，不触碰券库存。
 
 ### 统计与数据回流
 
@@ -85,12 +90,12 @@ npm run polyv:live -w backend -- --dry
 npm run polyv:live -w backend -- --fire
 
 # 5. 只测某几个动作
-npm run polyv:live -w backend -- --fire --only bulletin,coupon
+npm run polyv:live -w backend -- --fire --only bulletin,lottery
 
 # 6. 打开真实观看页（保利威观看 SDK）
 open http://localhost:4000/watch/
 ```
 
 真实模式下回执 `mock:false` 且 `endpoint` 为真实路径，可直接对照保利威后台的 API 调用记录核对。
-账号侧资源（questionId / cardPushId / productId / couponIds）没配时，对应动作会**被拒绝发送并说明缺什么**，
+账号侧资源（questionId / cardPushId / productId）没配时，对应动作会**被拒绝发送并说明缺什么**，
 不会把脏请求打到真实频道。

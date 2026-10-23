@@ -2,7 +2,7 @@ import type { ActionType, LiveState } from '../../../shared/types.js';
 
 /**
  * 复用历史经验时，用当前直播上下文实例化官方动作参数。
- * 只生成官方参数名；资源 ID（productId/couponIds/cardPushId/questionId）
+ * 只生成官方参数名；资源 ID（productId/cardPushId/questionId）
  * 由 polyv/client.ts 从 .env 注入，模型不得生成。
  */
 export function buildActionPayload(
@@ -35,8 +35,6 @@ export function buildActionPayload(
       return { message: '签到领积分' };
     case 'bulletin':
       return { content: '欢迎来到直播间，福利进行中' };
-    case 'coupon':
-      return {};
     default:
       return {};
   }

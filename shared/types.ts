@@ -36,7 +36,14 @@ export interface Metrics {
   totalMin: number;
 }
 
-/** AI 可程序化触发的 8 个动作（均对应保利威服务端 OpenAPI） */
+/**
+ * AI 可程序化触发的 7 个动作（均对应保利威服务端 OpenAPI）
+ *
+ * 已下线：coupon（发放优惠券）。
+ * 业务决定「不发放优惠券」，因此从动作集合中彻底移除——
+ * 逼单场景改用 bulletin（公告）+ lottery（抽奖）维持紧迫感，
+ * 不依赖券库存，也不会在观众端产生未预期的优惠。
+ */
 export type ActionType =
   | 'lottery'
   | 'welfare_lottery'
@@ -44,8 +51,7 @@ export type ActionType =
   | 'checkin'
   | 'push_card'
   | 'push_product'
-  | 'bulletin'
-  | 'coupon';
+  | 'bulletin';
 
 /** 决策状态：建议 / 待确认（半自动） / 已执行 / 执行失败 */
 export type DecisionStatus = 'suggested' | 'pending_confirm' | 'executed' | 'failed';

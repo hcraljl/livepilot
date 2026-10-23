@@ -168,18 +168,13 @@ export function evaluateRules(
     candidates.push({
       rule: 'closing_push',
       priority: RULE_META.closing_push.priority,
+      // 优惠券已下线：逼单只靠公告制造紧迫感，不涉及发放任何优惠
       actions: [
-        {
-          action: 'coupon',
-          label: '限时优惠券',
-          // 官方只接收 couponIds，由执行层从 POLYV_DEFAULT_COUPON_IDS 注入
-          payload: {},
-        },
         {
           action: 'bulletin',
           label: '逼单公告',
           payload: {
-            content: `最后 ${remainingMin} 分钟，下单立减，错过恢复原价。`,
+            content: `最后 ${remainingMin} 分钟，本场专属价即将结束，想要的速度下单。`,
           },
         },
       ],

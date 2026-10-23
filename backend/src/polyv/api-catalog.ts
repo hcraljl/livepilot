@@ -149,17 +149,6 @@ export const POLYV_API_OPERATIONS: PolyvApiOperation[] = [
     source: 'official',
   },
   {
-    action: 'coupon',
-    label: '发放优惠券',
-    method: 'POST',
-    path: '/live/v4/channel/coupon/create',
-    docUrl: 'https://help.polyv.net/live/api/v4/channel/coupon/create/',
-    description: '向频道发放已创建的优惠券。',
-    requiredParams: ['channelId', 'couponIds'],
-    notes: 'couponIds 为优惠券 ID 数组（1~30 个），不是券名称或面额。',
-    source: 'official',
-  },
-  {
     action: 'stats',
     label: '直播统计',
     method: 'GET',

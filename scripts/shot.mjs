@@ -5,16 +5,16 @@
  * 而驾驶舱的数据来自 SSE，此时还没到第一帧；加 --virtual-time-budget
  * 又会让渲染进程崩溃（实测）。CDP 可以精确控制「等多久再截」。
  *
- * 用法：node scripts/shot.mjs <url> <输出文件> [等待毫秒]
+ * 用法：node scripts/shot.mjs <url> <输出文件> [等待毫秒] [视口高度] [点击文字]
  */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const [, , url, outFile, waitMsRaw, heightRaw] = process.argv;
+const [, , url, outFile, waitMsRaw, heightRaw, clickText] = process.argv;
 if (!url || !outFile) {
-  console.error('用法: node scripts/shot.mjs <url> <out.png> [waitMs]');
+  console.error('用法: node scripts/shot.mjs <url> <out.png> [waitMs] [height] [clickText]');
   process.exit(1);
 }
 const waitMs = Number(waitMsRaw ?? 6000);
@@ -93,8 +93,34 @@ await send('Page.navigate', { url });
 // 等页面真正跑起来（SSE 首帧 + 数据渲染）
 await sleep(waitMs);
 
-const shot = await send('Page.captureScreenshot', { format: 'png' });
-if (shot.result?.data) {
+// 可选：按可见文字点一下（例如观看页的「观看直播」按钮），再等一轮
+if (clickText) {
+  const clickExpr = `
+    (() => {
+      const target = ${JSON.stringify(clickText)};
+      const nodes = [...document.querySelectorAll('button, a, div, span')];
+      const hit = nodes.find((n) => n.textContent.trim() === target) ?? nodes.find((n) => n.textContent.includes(target));
+      if (!hit) return 'NOT_FOUND';
+      hit.click();
+      return 'CLICKED';
+    })()`;
+  const r = await send('Runtime.evaluate', { expression: clickExpr, returnByValue: true });
+  console.log(`点击「${clickText}」→ ${r.result?.result?.value}`);
+  await sleep(Math.max(waitMs, 5000));
+}
+
+// SHOT_TEXT=1 时把页面可见文字打出来，便于判断停在哪个状态（未登录 / 未开播 / 播放中）
+if (process.env.SHOT_TEXT === '1') {
+  const t = await send('Runtime.evaluate', {
+    expression: 'document.body.innerText.replace(/\\n{2,}/g, "\\n").slice(0, 900)',
+    returnByValue: true,
+  });
+  console.log('--- 页面文字 ---');
+  console.log(t.result?.result?.value ?? '(取不到)');
+  console.log('----------------');
+}
+
+const shot = await send('Page.captureScreenshot', { format: 'png' });if (shot.result?.data) {
   writeFileSync(outFile, Buffer.from(shot.result.data, 'base64'));
   console.log(`✅ 截图已保存：${outFile}`);
 } else {

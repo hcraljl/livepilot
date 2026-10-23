@@ -22,15 +22,14 @@ export interface ExecuteOutcome {
  *   push_card   （抽奖卡片召回）→ lottery  （直接发抽奖，召回效果更直接）
  *   answer_card （答题卡救冷场）→ checkin  （签到同样能激活公屏）
  *   push_product（推商品弹层）  → bulletin （用公告口播主推品）
- *   coupon      （发券逼单）    → bulletin （用公告逼单，券库存不受影响）
  *
+ * 优惠券（coupon）已随业务决定下线：动作集合里不存在，因此也没有降级入口。
  * 降级事实会写进决策理由与事件流，不会伪装成原动作成功。
  */
 const DEGRADE_TO: Partial<Record<ActionType, ActionType>> = {
   push_card: 'lottery',
   answer_card: 'checkin',
   push_product: 'bulletin',
-  coupon: 'bulletin',
 };
 
 /** 执行一条已存在的决策（半自动确认 / 全自动落地都走这里） */

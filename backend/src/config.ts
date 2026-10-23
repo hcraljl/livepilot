@@ -47,10 +47,7 @@ export const config = {
       questionId: str('POLYV_QUESTION_ID'),
       cardPushId: str('POLYV_CARD_PUSH_ID'),
       productId: str('POLYV_PRODUCT_ID'),
-      couponIds: str('POLYV_COUPON_IDS')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      // 优惠券（POLYV_COUPON_IDS）已随「不发券」的业务决定下线
     },
   },
 
@@ -62,7 +59,7 @@ export const config = {
   useRealPolyv: bool('USE_REAL_POLYV', false),
 
   /**
-   * 真实模式下，若动作所需的账号侧资源（questionId / cardPushId / productId / couponIds）
+   * 真实模式下，若动作所需的账号侧资源（questionId / cardPushId / productId）
    * 未配置，是否自动降级为「同目的但不需要资源」的动作。
    *
    * 为什么默认开：不降级的话这些决策会必然失败（10001 参数为 null），

@@ -40,7 +40,6 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   push_card: '卡片推送',
   push_product: '商品推送',
   bulletin: '公告',
-  coupon: '优惠券',
 };
 
 /** 模拟器 5 类加戏场景中文名（POST /api/sim/scenario） @since v0.2.0 */

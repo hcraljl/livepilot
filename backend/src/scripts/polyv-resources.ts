@@ -58,17 +58,6 @@ const PROBES: Probe[] = [
       }),
   },
   {
-    label: '优惠券',
-    path: '/live/v4/channel/coupon/list',
-    params: { channelId, pageNumber: '1', pageSize: '50' },
-    envKey: 'POLYV_COUPON_IDS',
-    extract: (d) =>
-      pickArray(d).map((x) => {
-        const o = x as { couponId?: number | string; id?: number | string; name?: string; couponName?: string };
-        return { id: String(o.couponId ?? o.id ?? ''), name: String(o.name ?? o.couponName ?? '') };
-      }),
-  },
-  {
     label: '推送卡片',
     path: '/live/v4/channel/card-push/list',
     params: { channelId, page: '1', pageSize: '50' },

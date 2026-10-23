@@ -148,6 +148,6 @@ curl http://localhost:4000/api/replay
 
 ## Polyv 能力使用（加分项）
 
-- 服务端 OpenAPI（程序化发起互动）：抽奖 / 答题卡 / 卡片推送 / 商品推送 / 公告 / 批量签到 / 优惠券 + 统计轮询。
+- 服务端 OpenAPI（程序化发起互动）：抽奖 / 答题卡 / 卡片推送 / 商品推送 / 公告 / 批量签到 + 统计轮询。（优惠券已按业务要求下线，不再发放）
 - 开源观看页 SDK `polyv-web-live-watch-sdk` + 互动接收端 SDK `polyv-web-interactions-receive-sdk-ui-default`（演示侧真实观看页）。
 - 详细清单见交付物「Polyv 能力使用清单」。

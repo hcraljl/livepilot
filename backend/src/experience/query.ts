@@ -12,7 +12,6 @@ export const ACTION_LABELS: Record<string, string> = {
   push_card: '卡片召回',
   push_product: '推送商品',
   bulletin: '公告',
-  coupon: '优惠券',
 };
 
 export interface ExperienceQueryInput {

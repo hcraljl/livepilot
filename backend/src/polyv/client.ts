@@ -25,7 +25,6 @@ const RESOURCE_HINT: Record<ResourceKey, string> = {
   questionId: 'POLYV_QUESTION_ID（保利威后台「互动-答题」里创建的答题卡 ID）',
   cardPushId: 'POLYV_CARD_PUSH_ID（后台「营销-卡片」里推送卡片的数字 ID）',
   productId: 'POLYV_PRODUCT_ID（后台「商品库」里的商品 ID）',
-  couponIds: 'POLYV_COUPON_IDS（后台「营销-优惠券」里的券 ID，多个用英文逗号分隔）',
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -116,7 +115,6 @@ export class PolyvClient {
       questionId: Boolean(r.questionId),
       cardPushId: Boolean(r.cardPushId),
       productId: Boolean(r.productId),
-      couponIds: r.couponIds.length > 0,
     };
   }
 
@@ -180,9 +178,6 @@ export class PolyvClient {
       questionId: config.polyv.resources.questionId || '<QUESTION_ID>',
       cardPushId: config.polyv.resources.cardPushId || '<CARD_PUSH_ID>',
       productId: config.polyv.resources.productId || '<PRODUCT_ID>',
-      couponIds: config.polyv.resources.couponIds.length
-        ? config.polyv.resources.couponIds
-        : ['<COUPON_ID>'],
     };
 
     const missing = (spec.requires ?? []).filter((k) => !status[k]);
