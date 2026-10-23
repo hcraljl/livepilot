@@ -28,4 +28,11 @@
         100% {
           transform: rotate(360deg);
         }
-      }</style><script defer="defer" src="./vendor/vue-2.7.16.runtime.min.js"></script><script defer="defer" src="./assets/js/chunk-polyv.33456fa0.js" crossorigin="anonymous"></script><script defer="defer" src="./assets/js/chunk-vendors.a6bfa833.js" crossorigin="anonymous"></script><script defer="defer" src="./assets/js/index.22f5f753.js" crossorigin="anonymous"></script><link href="./assets/css/index.13558ac9.css" rel="stylesheet" crossorigin="anonymous"></head><body><noscript><strong>We're sorry but this page doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div id="skeleton"><span class="loader"></span></div><div id="app"></div></body></html>
+      }</style><script defer="defer" src="./vendor/vue-2.7.16.runtime.min.js"></script><script defer="defer" src="./assets/js/chunk-polyv.33456fa0.js" crossorigin="anonymous"></script><script defer="defer" src="./assets/js/chunk-vendors.a6bfa833.js" crossorigin="anonymous"></script><script defer="defer" src="./assets/js/index.22f5f753.js" crossorigin="anonymous"></script><link href="./assets/css/index.13558ac9.css" rel="stylesheet" crossorigin="anonymous"><style>
+/* LivePilot 背景替换（2026-10-23）：仅作用于官方观看页的背景层，不动布局/组件/交互。
+   深色与黑色皮肤下 .pws-pc-watch-bg 原本是纯色、不引用背景图，仅替换 PNG 在该皮肤下不可见，
+   故强制让背景层使用替换后的抽帧图，并叠加一层遮罩渐变保证文字对比度；
+   图片加载失败时浏览器自然回退到各皮肤原本的 background-color（即原有背景）。 */
+.pws-pc-watch-bg{background-image:linear-gradient(rgba(11,16,20,.35),rgba(11,16,20,.55)),url(./assets/img/pws-pc-watch-bg.c9825582.png)!important;background-size:cover!important;background-position:center bottom!important;background-repeat:no-repeat!important}
+.c-portrait-watch{background-image:linear-gradient(rgba(11,16,20,.35),rgba(11,16,20,.55)),url(./assets/img/portrait-bg.2ff789f2.png)!important;background-size:cover!important;background-position:center bottom!important;background-repeat:no-repeat!important}
+</style></head><body><noscript><strong>We're sorry but this page doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div id="skeleton"><span class="loader"></span></div><div id="app"></div></body></html>

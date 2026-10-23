@@ -51,9 +51,25 @@
   .hint{padding:14px;color:var(--faint);font-size:12.5px;line-height:1.7}
   .hint code{background:#16222b;padding:1px 5px;border-radius:4px;color:#a8c2d1}
   @media (max-width:1080px){.grid{grid-template-columns:1fr}}
+  /* ---- 背景层（参考站同款：循环视频 + 本地抽帧兜底 + 遮罩） ----
+     层级：body 底色 --bg（最终回退） < #bgPoster（本地抽帧） < #bgVideo（远端循环视频） < #bgScrim（遮罩） < 页面内容。
+     视频/海报任一加载失败都不会留白：海报失败露底色，视频失败停在海报。 */
+  #bgFx{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+  #bgPoster{position:absolute;inset:0;background:url("./assets/bg-poster.jpg") center bottom/cover no-repeat}
+  #bgVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center bottom;opacity:0}
+  #bgScrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,16,20,.82) 0%,rgba(11,16,20,.66) 45%,rgba(11,16,20,.86) 100%)}
+  /* 竖屏/窄屏换竖版抽帧，避免横图裁掉主体；视频端 object-fit:cover 自适应 */
+  @media (max-width:760px),(max-aspect-ratio:3/4){#bgPoster{background-image:url("./assets/bg-poster-portrait.jpg")}}
 </style>
 </head>
 <body>
+<!-- 背景层：仅背景替换，不参与交互（pointer-events:none，z-index 位于全部内容之下） -->
+<div id="bgFx" aria-hidden="true">
+  <div id="bgPoster"></div>
+  <video id="bgVideo" muted autoplay playsinline preload="auto"
+    src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_074625_a81f018a-956b-43fb-9aee-4d1508e30e6a.mp4"></video>
+  <div id="bgScrim"></div>
+</div>
 <div class="wrap">
   <header>
     <div class="logo">PV</div>
@@ -267,6 +283,37 @@ bootSdk().then(() => {
     setTimeout(join, 400);
   }
 });
+
+// ---------- 背景视频（还原参考站：canplay 淡入 / 结尾交叉淡化循环 / 失败回退本地抽帧海报） ----------
+(function bgFx() {
+  const v = $('bgVideo');
+  if (!v) return;
+  let fadingOut = false;
+  /** requestAnimationFrame 驱动的透明度动画（参考站要求：不用 CSS transition） */
+  const fade = (from, to, ms) => {
+    const t0 = performance.now();
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / ms);
+      v.style.opacity = String(from + (to - from) * p);
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  const replay = () => { v.play().then(() => fade(0, 1, 500)).catch(() => {}); };
+  v.addEventListener('canplay', replay, { once: true });
+  v.addEventListener('timeupdate', () => {
+    if (!fadingOut && v.duration && v.duration - v.currentTime <= 0.55) {
+      fadingOut = true;
+      fade(parseFloat(v.style.opacity || '1'), 0, 500);
+    }
+  });
+  v.addEventListener('ended', () => {
+    v.style.opacity = '0';
+    setTimeout(() => { fadingOut = false; v.currentTime = 0; replay(); }, 100);
+  });
+  // 远端视频不可用（断网/被拦）→ 移除视频，停留在本地抽帧海报，不影响任何功能
+  v.addEventListener('error', () => v.remove());
+})();
 </script>
 </body>
 </html>
