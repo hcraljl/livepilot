@@ -29,6 +29,16 @@ import { signParams } from '../polyv/sign.ts';
 /** 轮询间隔：官方统计有秒级~分钟级延迟，5s 足够灵敏又不至于打爆频率限制 */
 const POLL_MS = 5_000;
 
+/**
+ * 场次统计滞后窗口（30 分钟）
+ *
+ * 实测发现的硬事实：保利威的「场次汇总」接口在**直播过程中查不到进行中的场次**
+ * （所有场次 endTime 都有值，推测要下播后才写库）。如果死等 endTime 为空的场次，
+ * `find(!endTime)` 永远失败 → 整条链路一直走「归零分支」 → 看板在线人数永远是 0。
+ * 所以放宽为：最近 30 分钟内开始或结束的场次，也认作当前场。
+ */
+const SESSION_LAG_MS = 30 * 60_000;
+
 interface RealtimeViewerPoint {
   channelId: string | number;
   time: string;
@@ -98,15 +108,22 @@ class RealMetricsPoller {
   /** 当前锁定的场次：一旦锁定就不跟着历史列表漂移 */
   private sessionId: string | null = null;
   private lastErrorAt = 0;
+  private lastSnapshotAt = 0;
+  /** 频道转 live 的时刻：由开播监听传入，用于计算真实开播时长（比场次 startTime 准） */
+  private liveStartedAt = 0;
+  /** 频道累计观看（pageView）缓存：场次统计滞后时的兜底口径，30s 刷新一次 */
+  private pageView = 0;
+  private pageViewAt = 0;
 
   get running(): boolean {
     return this.timer !== null;
   }
 
-  /** 开始轮询（幂等） */
-  start(): void {
+  /** 开始轮询（幂等）。liveStartedAt = 频道转 live 的时间戳，可省略 */
+  start(liveStartedAt = 0): void {
     if (this.timer) return;
     this.sessionId = null;
+    this.liveStartedAt = liveStartedAt;
     void this.tick();
     this.timer = setInterval(() => void this.tick(), POLL_MS);
     log('✅ 已切换到保利威真实数据（每 5s 轮询官方统计接口）');
@@ -118,6 +135,7 @@ class RealMetricsPoller {
     clearInterval(this.timer);
     this.timer = null;
     this.sessionId = null;
+    this.liveStartedAt = 0;
     log('⏹ 已停止真实数据轮询');
   }
 
@@ -133,22 +151,48 @@ class RealMetricsPoller {
         '/live/v2/statistics/get-realtime-viewers',
         { channelIds: channelId },
       );
-      const online = viewers?.find((v) => String(v.channelId) === String(channelId))?.count;
+      // ① 实时在线人数：这是唯一真正实时的口径，独立于场次统计存在。
+      //    即便场次汇总还没入库，这个值也必须如实上板 —— 否则开播后在线人数永远是 0。
+      const onlineNow = Math.round(
+        Number(viewers?.find((v) => String(v.channelId) === String(channelId))?.count ?? 0),
+      );
 
-      // ② 当前场次汇总：优先锁定正在进行中的场次（endTime 为空/0）
+      // ② 当前场次汇总：优先「进行中」（endTime 为空/0），否则退到「最近一场」
       const summary = await signedGet<{ contents?: SessionSummaryItem[] }>(
         '/live/v4/statistics/session-stats/summary/list',
         { channelId, pageSize: 5 },
       );
       const contents = summary?.contents ?? [];
-      // 只认「正在进行中」的场次（endTime 为空/0）。
-      // 已结束的历史场次绝不当作当前场 —— 否则没开播时会把上一场的数据/时长显示成当前的。
+      // 列表按开始时间降序，contents[0] 即最近一场
+      const latest = contents[0] ?? null;
       const live = contents.find((s) => !s.endTime) ?? null;
-      if (live) this.sessionId = live.sessionId;
-      if (!live) {
-        // 没有进行中的场次：把看板归零后返回（未开播或刚下播，真实数据就是 0）
+      // 统计滞后兜底：官方场次汇总在直播中查不到「进行中」场次（实测：全部场次 endTime 都有值）。
+      // 死等它会导致整条链路走归零分支、在线人数被抹成 0。因此最近 30 分钟内的场次也认。
+      const recent =
+        !live && latest
+          ? Number(latest.endTime ?? 0) > 0 &&
+            Date.now() - Number(latest.endTime) < SESSION_LAG_MS
+            ? latest
+            : Number(latest.startTime ?? 0) > 0 &&
+                Math.abs(Date.now() - Number(latest.startTime)) < SESSION_LAG_MS
+              ? latest
+              : null
+          : null;
+      const cur = live ?? recent;
+      if (cur) this.sessionId = cur.sessionId;
+
+      if (!cur) {
+        // 真·没有可认的场次（未开播或下播很久了）：累计类指标归零，
+        // 但实时在线人数照实保留 —— 它是独立口径，不该被场次缺失连坐。
         store.patchMetrics(
-          { online: 0, totalViewers: 0, productClicks: 0, orders: 0, gmv: 0, danmakuRate: 0 },
+          {
+            online: onlineNow,
+            totalViewers: 0,
+            productClicks: 0,
+            orders: 0,
+            gmv: 0,
+            danmakuRate: 0,
+          },
           { allowDecrease: true },
         );
         store.setMetricsOrigin('real');
@@ -163,20 +207,41 @@ class RealMetricsPoller {
         productParams,
       );
 
-      const uniqueViewer = live?.uniqueViewer ?? 0;
-      const viewerCount = live?.viewerCount ?? 0;
+      const uniqueViewer = cur.uniqueViewer ?? 0;
+      const viewerCount = cur.viewerCount ?? 0;
+
+      // ④ 累计观看兜底：本场数据要下播后才入库，直播中 uniqueViewer 恒为 0。
+      //    此时退到频道维度的 pageView —— 它是真实且实时更新的
+      //    （实测：新开一个观看页，pageView 立刻从 24 涨到 25），
+      //    总比看板「明明有人在看，累计观看却显示 0」强。
+      //    口径注意：pageView 是频道历史累计，跨场次累加，不是单场数据。
+      if (Math.round(uniqueViewer || viewerCount) === 0 && Date.now() - this.pageViewAt > 30_000) {
+        const basic = await signedGet<{ pageView?: number }>('/live/v3/channel/basic/get', {
+          channelId,
+        });
+        this.pageViewAt = Date.now();
+        if (typeof basic?.pageView === 'number') this.pageView = basic.pageView;
+      }
+
       const clickNum = product?.productClickNum ?? 0;
       const clickViewers = product?.productClickViewers ?? 0;
       const orders = product?.saleQuantity ?? 0;
       const gmv = Number(product?.totalPayAmount ?? 0);
-      const elapsedMin = live?.startTime
-        ? (Date.now() - live.startTime) / 60_000
-        : store.get().metrics.elapsedMin;
+
+      // 开播时长：优先用「频道转 live」的时刻（由开播监听记录），
+      // 场次 startTime 在统计滞后时会偏，且已结束场次会算成上一场的固定时长。
+      const st = Number(cur.startTime ?? 0);
+      const elapsedMin =
+        this.liveStartedAt > 0
+          ? (Date.now() - this.liveStartedAt) / 60_000
+          : st > 0
+            ? (Date.now() - st) / 60_000
+            : store.get().metrics.elapsedMin;
 
       store.patchMetrics(
         {
-          online: Math.round(online ?? live?.maxConcurrencyCount ?? 0),
-          totalViewers: Math.round(uniqueViewer || viewerCount),
+          online: onlineNow > 0 ? onlineNow : Math.round(cur.maxConcurrencyCount ?? 0),
+          totalViewers: Math.round(uniqueViewer || viewerCount || this.pageView),
           productClicks: clickNum,
           orders,
           gmv,
@@ -189,6 +254,16 @@ class RealMetricsPoller {
         { allowDecrease: true },
       );
       store.setMetricsOrigin('real');
+
+      // 每 30s 打一次取数快照，方便现场排查「数据为什么是 0」
+      if (Date.now() - this.lastSnapshotAt > 30_000) {
+        this.lastSnapshotAt = Date.now();
+        log(
+          `在线 ${onlineNow} · 场次 ${cur.sessionId}${live ? '(进行中)' : '(滞后兜底)'} · ` +
+            `观看 ${uniqueViewer}/${viewerCount}${this.pageView ? `(pageView ${this.pageView})` : ''} · ` +
+            `点击 ${clickNum} · 下单 ${orders} · GMV ${gmv}`,
+        );
+      }
     } catch (err) {
       // 真实取数失败不能影响看板：只做节流日志
       if (Date.now() - this.lastErrorAt > 30_000) {

@@ -67,6 +67,8 @@ class BroadcastService {
   private logTail = '';
   private channelLive: boolean | null = null;
   private channelLiveAt = 0;
+  /** 频道转 live 的时刻（0 = 未开播），用于给真实指标轮询器算开播时长 */
+  private liveSince = 0;
   /** 频道 live 监听定时器（真实模式） @since v0.10.0 */
   private liveWatch: ReturnType<typeof setInterval> | null = null;
   private ffmpegReady = false;
@@ -182,14 +184,19 @@ class BroadcastService {
     const check = async (): Promise<void> => {
       const live = await this.refreshChannelLive(true);
       if (live) {
+        // 记录频道转 live 的时刻：真实开播时长以它为准（场次统计滞后，startTime 不可靠）
+        if (this.liveSince === 0) this.liveSince = Date.now();
         if (simulator.running) {
           simulator.stop();
           console.log('[metrics] 频道已真实开播 —— 模拟器让位，看板改吃真实数据');
         }
-        if (!realMetrics.running) realMetrics.start();
-      } else if (realMetrics.running) {
-        realMetrics.stop();
-        store.setMetricsOrigin('none');
+        if (!realMetrics.running) realMetrics.start(this.liveSince);
+      } else {
+        this.liveSince = 0;
+        if (realMetrics.running) {
+          realMetrics.stop();
+          store.setMetricsOrigin('none');
+        }
       }
     };
     void check();
