@@ -213,3 +213,61 @@ export const fetchPolyvChannel = (): Promise<PolyvChannelInfo> => get<PolyvChann
 /** POST /api/polyv/channel —— 运行时切换频道（传空串恢复 .env） @since v0.4.0 */
 export const setPolyvChannel = (channelId: string): Promise<PolyvChannelInfo> =>
   post<PolyvChannelInfo>('/api/polyv/channel', { channelId });
+
+/* ============================ 人工指令台（v0.7.0） ============================ */
+
+/** 条件触发（在线人数阈值） @since v0.7.0 */
+export interface CommandConditionInfo {
+  kind: 'online_below' | 'online_above';
+  value: number;
+  label: string;
+}
+
+/** AI 解析结果（后端 commands/parse.ts 的 ParsedCommand 前端镜像） @since v0.7.0 */
+export interface ParsedCommandInfo {
+  action: ActionType | null;
+  actionLabel: string;
+  delaySec: number;
+  dueAt: number | null;
+  condition: CommandConditionInfo | null;
+  note: string;
+  confidence: number;
+  source: 'llm' | 'rule';
+  text: string;
+  matchedActionWord: string;
+  matchedTimeWord: string;
+}
+
+/** 排程表中的一条指令 @since v0.7.0 */
+export interface ScheduledCommandInfo {
+  id: string;
+  text: string;
+  action: ActionType;
+  actionLabel: string;
+  title: string;
+  dueAt: number;
+  createdAt: number;
+  condition: CommandConditionInfo | null;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'expired';
+  note: string;
+  source: 'llm' | 'rule';
+  firedAt?: number;
+  decisionId?: string;
+  resultMessage?: string;
+}
+
+export type SendCommandResult =
+  | { kind: 'executed'; parsed: ParsedCommandInfo; decision: Decision; result: PolyvCallResult }
+  | { kind: 'scheduled'; parsed: ParsedCommandInfo; command: ScheduledCommandInfo }
+  | { kind: 'rejected'; parsed: ParsedCommandInfo; message: string };
+
+/** POST /api/commands —— 一句话指令：解析 + 立即执行 / 排程 @since v0.7.0 */
+export const sendCommand = (text: string): Promise<SendCommandResult> => post<SendCommandResult>('/api/commands', { text });
+
+/** GET /api/commands —— 排程表（pending 在前） @since v0.7.0 */
+export const fetchCommands = (): Promise<{ commands: ScheduledCommandInfo[] }> =>
+  get<{ commands: ScheduledCommandInfo[] }>('/api/commands');
+
+/** DELETE /api/commands/:id —— 取消待执行指令 @since v0.7.0 */
+export const cancelCommand = (id: string): Promise<{ command: ScheduledCommandInfo }> =>
+  request<{ command: ScheduledCommandInfo }>(`/api/commands/${id}`, { method: 'DELETE' });

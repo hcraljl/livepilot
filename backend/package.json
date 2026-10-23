@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "sign:selftest": "tsx src/polyv/sign.ts --selftest",
     "sim:check": "tsx src/scripts/sim-check.ts",
+    "cmd:check": "tsx src/scripts/command-check.ts",
     "smoke": "tsx src/scripts/smoke.ts",
     "engine:demo": "tsx src/engine/harness.ts",
     "polyv:res": "tsx src/scripts/polyv-resources.ts",

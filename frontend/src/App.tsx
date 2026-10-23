@@ -12,6 +12,7 @@ import { ConnectionBadge } from './components/ConnectionBadge';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SplitView } from './layout/SplitView';
 import { ControlBar } from './components/ControlBar';
+import { CommandBar } from './components/CommandBar';
 import { MetricCards } from './components/MetricCards';
 import { Funnel } from './components/Funnel';
 import { ProductRanking } from './components/ProductRanking';
@@ -74,6 +75,8 @@ export default function App() {
           <ErrorBoundary key="dashboard" fallbackTitle="看板渲染异常，已降级（演示不中断）">
             <SplitView>
               <ControlBar state={state} />
+              {/* 指挥台：运营说一句 → AI 解析 → 立即/定时执行 @since v0.7.0 */}
+              <CommandBar state={state} />
               <MetricCards state={state} />
               <div className="grid gap-3 lg:grid-cols-2">
                 <Funnel funnel={state?.funnel ?? null} />

@@ -130,6 +130,37 @@ const main = async (): Promise<void> => {
   );
   check('动作回执标注 mock 真伪', action.json?.data?.result?.mock === false || action.json?.data?.result?.mock === true, `mock=${action.json?.data?.result?.mock}`);
 
+  // 6.1 人工指令台：自然语言 → 排程 / 取消 / 拒绝
+  const cmdSched = await call('POST', '/api/commands', { text: '5 分钟后发一个签到' });
+  check(
+    '指令台：定时指令入排程',
+    cmdSched.json?.data?.kind === 'scheduled' && cmdSched.json?.data?.parsed?.action === 'checkin',
+    `delay=${cmdSched.json?.data?.parsed?.delaySec}s · ${cmdSched.json?.data?.parsed?.note ?? ''}`,
+  );
+  const cmdList = await call('GET', '/api/commands');
+  const pendingCmds: { status: string }[] = cmdList.json?.data?.commands ?? [];
+  check(
+    '指令台：排程表可查',
+    pendingCmds.filter((c) => c.status === 'pending').length >= 1,
+    `pending=${pendingCmds.filter((c) => c.status === 'pending').length}`,
+  );
+  const cmdId = cmdSched.json?.data?.command?.id;
+  if (cmdId) {
+    const cmdCancel = await call('DELETE', `/api/commands/${cmdId}`);
+    check(
+      '指令台：取消待执行',
+      cmdCancel.json?.ok === true && cmdCancel.json?.data?.command?.status === 'cancelled',
+    );
+  }
+  const cmdBad = await call('POST', '/api/commands', { text: '今天天气不错，适合睡觉' });
+  check('指令台：听不懂时不执行', cmdBad.json?.data?.kind === 'rejected');
+  const cmdNow = await call('POST', '/api/commands', { text: '立刻发一条公告' });
+  check(
+    '指令台：立即指令直接执行',
+    cmdNow.json?.data?.kind === 'executed' && cmdNow.json?.data?.result?.ok === true,
+    `${cmdNow.json?.data?.result?.message ?? ''}`,
+  );
+
   // 7. 模式 / 策略
   const mode = await call('POST', '/api/mode', { mode: 'semiauto' });
   check('切换模式 /api/mode', mode.json?.data?.mode === 'semiauto');

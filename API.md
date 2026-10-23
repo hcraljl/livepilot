@@ -31,6 +31,9 @@
 | GET | `/api/polyv/channel` | 当前生效频道号（运行时覆盖优先） | 观众端预览弹层 |
 | POST | `/api/polyv/channel` | 运行时切换频道（`{channelId:string}`，空串恢复 .env） | 弹层内「换频道」 |
 | POST | `/polyv/webhook` | 保利威回调接收（验签） | 保利威服务器 |
+| POST | `/api/commands` | 一句话人工指令：解析 → 立即执行 / 排程 | A 的指挥台 |
+| GET | `/api/commands` | 指令排程表（pending 在前 + 最近历史） | A 的指挥台 |
+| DELETE | `/api/commands/:id` | 取消待执行指令 | A 的指挥台 |
 
 ### 1. 健康检查
 
@@ -328,3 +331,71 @@ interface LiveState {
 - 检索：零依赖中文分词（`Intl.Segmenter` + CJK bigram + 运营领域词典）→ TF-IDF 余弦相似度 → 历史增量 / 置信度加权优先级；
 - 性能：索引首次搜索构建后缓存复用；新增经验只对新文档分词、旧文档刷新权重（IDF 是全局统计，无法完全零全局计算）；默认 2000 条上限，超出批量裁剪旧复盘并保留 playbook；
 - 每场复盘自动沉淀；知识库 SOP 用 `source: 'playbook'` 导入，复用同一套检索。
+
+---
+
+## 六、人工指令台（自然语言 → 执行）
+
+> 维护：**成员 B**。目的：让人机协作可演示——运营说一句，AI 负责解析时间/动作/条件并落地。
+
+### POST /api/commands
+
+请求：
+
+```json
+{ "text": "5 分钟后发一个签到" }
+```
+
+响应三种形态（统一 `{ ok: true, data }` 信封，`data.kind` 区分）：
+
+```jsonc
+// 1) 立即执行（无延迟、无条件）
+{ "kind": "executed", "parsed": { ... }, "decision": { ... }, "result": { "ok": true, "mock": true } }
+
+// 2) 已排程（定时 / 条件）
+{ "kind": "scheduled", "parsed": { ... }, "command": { "id": "cmd_xxx", "dueAt": 1792738000000, "status": "pending" } }
+
+// 3) 没听懂（不执行，回执说明原因）
+{ "kind": "rejected", "parsed": { ... }, "message": "没听懂要做什么。现在支持：抽奖 / 福利抽奖 / ..." }
+```
+
+`parsed` 结构（`backend/src/commands/parse.ts` 的 `ParsedCommand`）：
+
+| 字段 | 说明 |
+| --- | --- |
+| `action` | `lottery / welfare_lottery / answer_card / checkin / push_card / push_product / bulletin`，未识别为 `null` |
+| `delaySec` | 相对延迟（秒），`0` = 立即 |
+| `dueAt` | 绝对执行时间（条件型为**超时时间**） |
+| `condition` | `{ kind: "online_below" \| "online_above", value, label }` |
+| `note` | AI 复述的"我理解为…"，前端直接渲染 |
+| `confidence` | 0~1，规则命中词越多越高 |
+| `source` | `llm`（配了 `DEEPSEEK_API_KEY`）或 `rule`（正则兜底） |
+
+支持的表达（`npm run cmd:check -w backend` 覆盖 12 例）：
+
+- 动作：抽奖 / 福利抽奖 / 答题卡 / 签到 / 卡片 / 推一下（商品）/ 公告
+- 时间：`5 分钟后` `半小时后` `两分钟后` `15:30` `15点半` `马上/立刻`；中文数字、全角数字自动归一化
+- 条件：`在线跌破 1000` `人气超过 3000`（未开播时不做条件判断，避免 online≈0 误触发）
+- 上限：单条延迟最多 1 小时；条件型最多等 30 分钟，超时 `expired`
+
+### GET /api/commands
+
+```json
+{ "ok": true, "data": { "commands": [
+  { "id": "cmd_x", "text": "5 分钟后发一个签到", "action": "checkin", "actionLabel": "签到",
+    "dueAt": 1792738000000, "status": "pending", "condition": null, "source": "rule", "note": "我理解为：…" }
+] } }
+```
+
+`status`：`pending / running / done / failed / cancelled / expired`。待执行按 `dueAt` 升序，历史按触发时间倒序，最多保留 40 条。
+
+### DELETE /api/commands/:id
+
+取消待执行指令；已执行/已取消返回 **404**（避免前端误以为撤销成功）。
+
+### 执行语义
+
+- 定时/条件到点后走 **`executeAction()`**（与引擎、手动触发同一条执行路径），因此同样享受：
+  真实/模拟双通道、资源缺失自动降级、事件流留存、决策流可见、观众端可见；
+- 决策的 `rule` 固定为 `人工指令`，`reason` 带上运营原话，复盘时能区分"AI 自主"与"人指挥"；
+- 指令表是**进程内存**：重启即清空（演示场景不需要持久化，也避免幽灵任务）。

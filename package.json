@@ -15,6 +15,6 @@
     "install:all": "npm install",
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
     "contract:check": "tsx frontend/scripts/contract-check.ts",
-    "verify": "npm run typecheck && npm run sign:selftest -w backend && npm run sim:check -w backend"
+    "verify": "npm run typecheck && npm run sign:selftest -w backend && npm run cmd:check -w backend && npm run sim:check -w backend"
   }
 }

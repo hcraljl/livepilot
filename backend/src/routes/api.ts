@@ -15,6 +15,7 @@ import { executeAction, executeDecision } from '../polyv/executor.ts';
 import { buildFallbackReplay } from '../services/replay-fallback.ts';
 import { config } from '../config.ts';
 import { copilotRouter } from './copilot.ts';
+import { commandRouter } from './command.ts';
 import {
   POLYV_API_OPERATIONS,
   POLYV_COMMON_AUTH_PARAMS,
@@ -320,3 +321,6 @@ apiRouter.get('/polyv/operations', (_req, res) => {
 
 // C 扩展：副驾候选 / 操作选择
 apiRouter.use('/copilot', copilotRouter);
+
+// 人工指令台：自然语言 → 解析 → 立即执行 / 定时执行（人机协作主链路）
+apiRouter.use('/', commandRouter);
