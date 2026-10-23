@@ -28,8 +28,8 @@
 | GET | `/api/polyv/capabilities` | 保利威能力清单（8 个动作 + 接口路径 + 是否真实模式） | 路演展示 |
 | GET | `/api/polyv/mode` | 当前是模拟演练还是真实频道（含凭据是否齐备） | A 顶部徽标 |
 | POST | `/api/polyv/mode` | 运行时切换模拟/真实（`{useReal:boolean}`） | A 一键切换 |
-| GET | `/api/polyv/channel` | 当前生效频道号（运行时覆盖优先） | 右屏观看页 |
-| POST | `/api/polyv/channel` | 运行时切换频道（`{channelId:string}`，空串恢复 .env） | 右屏输入框 |
+| GET | `/api/polyv/channel` | 当前生效频道号（运行时覆盖优先） | 观众端预览弹层 |
+| POST | `/api/polyv/channel` | 运行时切换频道（`{channelId:string}`，空串恢复 .env） | 弹层内「换频道」 |
 | POST | `/polyv/webhook` | 保利威回调接收（验签） | 保利威服务器 |
 
 ### 1. 健康检查
@@ -140,7 +140,7 @@
 - 只切换「看哪个频道 / 往哪个频道发互动」，不涉及任何密钥
 - 传 `""` 恢复 `.env` 的 `POLYV_CHANNEL_ID`
 - 非法值（含空格、斜杠等）返回 **400**
-- 切换后 `LiveState.channelId` 立即同步（SSE 下一帧生效），右屏 iframe 自动重载
+- 切换后 `LiveState.channelId` 立即同步（SSE 下一帧生效），观众端弹层 iframe 自动重载
 
 > `dryRun:true` 表示强制演练：即使密钥齐备也不发真实请求，所有动作回执 `mock:true`。
 > 界面上的「切到真实频道 / 切回模拟演练」按钮就是打这个接口。

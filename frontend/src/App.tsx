@@ -2,6 +2,7 @@
  * App —— LivePilot 运营驾驶舱根组件
  *
  * v0.2.0（M2/M3）：完成真实驾驶舱——分屏看板 + AI 决策流 + 右屏观看页 + 智能复盘页。
+ * v0.6.0：观看页收进「观众端预览」弹层（SplitView 不再常驻右栏），看板吃满宽度。
  * 数据唯一来源：useSSE 订阅的后端全量 LiveState 帧；REST 动作走 lib/api.ts。
  * 负责人：A
  */
@@ -57,7 +58,9 @@ export default function App() {
             {state.running && <b className="ml-2 font-medium text-success-600">● 直播中</b>}
           </span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {/* 观众端观看页改为弹层：平时不占版面，点这里弹出大窗 @since v0.6.0 */}
+          {view === 'dashboard' && <WatchEmbed state={state} />}
           <ConnectionBadge status={status} />
         </div>
       </header>
@@ -69,7 +72,7 @@ export default function App() {
       <main className="min-h-0 flex-1">
         {view === 'dashboard' ? (
           <ErrorBoundary key="dashboard" fallbackTitle="看板渲染异常，已降级（演示不中断）">
-            <SplitView sidebar={<WatchEmbed state={state} />}>
+            <SplitView>
               <ControlBar state={state} />
               <MetricCards state={state} />
               <div className="grid gap-3 lg:grid-cols-2">

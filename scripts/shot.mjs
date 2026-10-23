@@ -19,6 +19,8 @@ if (!url || !outFile) {
 }
 const waitMs = Number(waitMsRaw ?? 6000);
 const viewportH = Number(heightRaw ?? 950);
+/** 视口宽度（默认 1600），可用 SHOT_WIDTH 覆盖，用于验证 1280×720 等小屏 @since v0.6.0 */
+const viewportW = Number(process.env.SHOT_WIDTH ?? 1600);
 const port = 9333;
 const profile = mkdtempSync(join(tmpdir(), 'lp-cdp-'));
 
@@ -33,7 +35,7 @@ const chrome = spawn(
     '--no-sandbox',
     '--disable-dev-shm-usage',
     '--hide-scrollbars',
-    `--window-size=1600,${viewportH}`,
+    `--window-size=${viewportW},${viewportH}`,
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
     'about:blank',
@@ -83,7 +85,7 @@ await new Promise((r) => ws.addEventListener('open', r, { once: true }));
 await send('Page.enable');
 await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', {
-  width: 1600,
+  width: viewportW,
   height: viewportH,
   deviceScaleFactor: 1,
   mobile: false,

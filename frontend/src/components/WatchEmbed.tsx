@@ -1,48 +1,61 @@
 /**
- * WatchEmbed —— 右屏：观众端视图（播放器槽位 + 观众侧互动流）
+ * WatchEmbed —— 观众端真实观看页：**触发按钮 + 全屏弹层**（v0.6.0）
  *
- * 结构（v0.5.1）：
- *  ┌ 标题 / 状态徽章 / 换频道 / 全屏打开
- *  ├ 播放器槽位：有频道号 → 嵌官方开源观看页（后端托管的 /watch/?channelId=…，按宽度等比缩放）
- *  │              无频道号 → 模拟画面占位（LIVE 角标 + 在线人数 + 当前讲解商品）
- *  └ 观众侧互动流：执行态决策 → 抽奖 / 答题卡 / 公告 / 商品推送
+ * 为什么改（v0.6.0）：
+ *   右屏常驻 400px 宽 + 38vh 高，官方观看页（播放器 + 聊天区 + 商品面板）根本放不下，
+ *   观众实际看到的排版被裁得七零八落，演示时反而显得"不真实"。
+ *   改为：平时完全收起，让看板吃满整个宽度；需要核对观众视角时点右上角按钮弹出大窗，
+ *   弹窗按 96vw × 92vh 给足空间，iframe 内是官方原版页面，所见即观众所见。
  *
- * 关键修复（v0.5.0）：嵌入条件从 `source === 'polyv' && channelId` 改为**只看 channelId**。
- * 后端 `LiveState.source` 默认就是 'simulator'（只有以 source='polyv' 开会话才是 'polyv'），
- * 而 `channelId` 取的是 effectiveChannelId（.env 或运行时覆盖）——真实频道 + 模拟动作的
- * 演示组合下，旧条件会把右屏错误退回模拟占位，丢掉真实直播画面（B 已反馈该现象）。
+ * 结构：
+ *  ┌ 触发器（header 右上，显示真实/模拟状态）
+ *  └ 弹层（createPortal → body，避免被 header 的 overflow 裁切）
+ *     ├ 标题 / 频道徽章 / 换频道 / 新窗口打开 / 关闭
+ *     ├ 左：官方观看页 iframe（/watch/?channelId=…，撑满弹层左半区）
+ *     └ 右：观众侧互动流（执行态决策 → 抽奖 / 答题卡 / 公告 / 商品推送）
  *
- * v0.5.1 两处一致性修正：
- *  1. 地址由写死的 /watch/index.html 改为后端托管的 /watch/（官方产物优先、兜底页自动回退），
- *     vite.config.ts 同步加了 /watch 代理，dev 与生产看到同一份页面；
- *  2. 官方页按 PC 布局渲染（实测需约 1076px 宽），窄列里改为等比缩放 + 全屏入口，消除横向滚动。
+ * 与 v0.5.1 的合并（rebase 到 9fc1a8e 后）：
+ *  - 保留 v0.5.1 的地址修正：`/watch/` 由**后端**托管并决定用官方页还是兜底页，
+ *    dev 下 Vite 已代理 /watch，不再写死 `/watch/index.html`（那样 dev 会命中兜底页）；
+ *  - 保留 v0.5.1 的「按 PC 逻辑宽渲染 + 等比缩放」思路：官方页不随 iframe 宽度收缩
+ *    （实测逻辑宽约 1080px），弹层在 1280 屏上仍可能窄于它，故窄于 1080 时等比缩放，
+ *    并让 iframe 逻辑高度 = 容器高 / scale，保证缩放后正好铺满、页面自身仍可滚动；
+ *  - v0.5.1 的「全屏打开」在弹层里升级为「新窗口打开」（1:1 尺寸核对时用）。
+ *
+ * 交互约定：
+ *  - 点遮罩、点关闭、按 Esc 均可关闭；
+ *  - 弹层**每次打开重新挂载** iframe：确保拿到最新直播状态，且关闭后不会有残留声音；
+ *  - 有频道号嵌官方页，无频道号退化为模拟画面占位（判定只看 channelId，v0.5.0 结论）。
  *
  * 频道号以 GET /api/polyv/channel 为准（含 embeddable 判定），并支持运行时切换
  * （POST /api/polyv/channel，演示现场换频道不必重启后端）。
  *
  * 契约：LiveState.channelId / decisions / metrics；PolyvChannelInfo（API.md v2）
- * 负责人：A · @since v0.2.0（A-12；v0.3.0 嵌官方 SDK 页；v0.4.0 模拟观众端；v0.5.0 频道判定与切换；v0.5.1 地址与缩放）
+ * 负责人：A · @since v0.2.0（v0.3.0 嵌官方 SDK 页；v0.4.0 模拟观众端；v0.5.0 频道判定与切换；
+ *                      v0.5.1 地址与缩放；v0.6.0 弹层化）
  */
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Decision, LiveState } from '@livepilot/shared';
 import { ACTION_LABELS } from '../lib/constants';
 import { formatInt } from '../lib/format';
 import { fetchPolyvChannel, setPolyvChannel, type PolyvChannelInfo } from '../lib/api';
 
 /**
- * 官方观看页地址（v0.5.1 修正）
+ * 官方观看页地址（沿用 v0.5.1 修正）
  *
  * 由**后端**托管并决定用哪一份：`/watch/` 优先官方开源观看页构建产物
  * （frontend/watch-sdk，Vue2 + @polyv/live-watch-sdk，带播放器/聊天室/互动接收端），
  * 没有产物时回退轻量页（frontend/watch），另有 `/watch-lite/` 可强制兜底。
- *
- * 因此这里**不要**写死成 `/watch/index.html`：那样在 dev 下会绕过后端、
- * 直接命中 Vite 静态目录里的轻量页，造成「开发看兜底页、生产看官方页」的不一致。
- * vite.config.ts 已把 /watch 代理到后端，两侧同源同内容。
+ * 因此这里**不要**写死成 `/watch/index.html`：那样 dev 下会绕过后端、直接命中
+ * Vite 静态目录里的轻量页，造成「开发看兜底页、生产看官方页」的不一致。
  *
  * @since v0.3.0（v0.5.1 改指向后端托管的 /watch/）
  */
 const WATCH_PAGE = '/watch/';
+
+/** 官方观看页的逻辑宽度（实测依据：iframe 宽 351px 时页面 scrollWidth ≈ 1076px） @since v0.5.1 */
+const OFFICIAL_LOGICAL_W = 1080;
 
 /** 观众端互动卡片的配色（按动作类型区分，弱化但可辨） @since v0.4.0 */
 const ACTION_TONE: Record<string, string> = {
@@ -59,61 +72,81 @@ const ACTION_TONE: Record<string, string> = {
 const visible = (d: Decision): boolean => d.status === 'executed';
 
 /**
- * 官方观看页的逻辑尺寸（实测依据：iframe 宽 351px 时页面 scrollWidth ≈ 1076px）
- * 它按 PC 布局渲染、不随 iframe 宽度收缩，直接嵌进 400px 侧栏会出现横向滚动条 + 内容被裁。
- * 处理方式：以 1080 逻辑宽渲染，再按容器宽度等比缩放（缩略但完整，不出现横向滚动），
- * 同时提供「全屏打开」给需要 1:1 观看的场景。
- * @since v0.5.1
+ * 官方观看页 iframe：撑满容器；窄于逻辑宽时等比缩放（不出现横向滚动） @since v0.5.1（v0.6.0 改为铺满弹层）
  */
-const OFFICIAL_LOGICAL_W = 1080;
-/** iframe 逻辑高度（远大于可视槽位，靠外层裁剪显示页面顶部） @since v0.5.1 */
-const OFFICIAL_LOGICAL_H = 1400;
-
-/** 按宽度等比缩放的官方观看页 @since v0.5.1 */
 function OfficialFrame({ channel }: { channel: string }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const [scale, setScale] = useState(0.34);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver((entries) => {
-      const w = entries[0].contentRect.width;
-      if (w > 0) setScale(Math.min(w / OFFICIAL_LOGICAL_W, 1));
+      const r = entries[0].contentRect;
+      if (r.width > 0 && r.height > 0) setBox({ w: r.width, h: r.height });
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
+  /** 容器比逻辑宽更宽 → 不缩放；否则按宽度等比缩，高度同步放大以保证缩放后铺满 */
+  const scale = box.w === 0 ? 1 : Math.min(box.w / OFFICIAL_LOGICAL_W, 1);
+  const frameStyle =
+    box.w === 0
+      ? { width: '100%', height: '100%', border: 0 }
+      : {
+          width: box.w / scale,
+          height: box.h / scale,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          border: 0,
+        };
+
   return (
-    <div
-      ref={wrapRef}
-      className="h-[42vh] max-h-[460px] min-h-[220px] w-full shrink-0 overflow-hidden rounded-md border border-gray-100 bg-gray-900"
-    >
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
+      {!loaded && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-gray-900">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+          <p className="text-[11px] text-white/50">官方观看页加载中…</p>
+        </div>
+      )}
       <iframe
         title="保利威直播观看页（官方开源观看 SDK）"
         src={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
         sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"
         referrerPolicy="no-referrer"
-        style={{
-          width: OFFICIAL_LOGICAL_W,
-          height: OFFICIAL_LOGICAL_H,
-          transform: `scale(${scale})`,
-          transformOrigin: 'top left',
-          border: 0,
-        }}
+        onLoad={() => setLoaded(true)}
+        style={frameStyle}
       />
     </div>
   );
 }
 
-/** 播放器槽位：有频道号即嵌官方观看页（不看 source） @since v0.5.0（v0.5.1 改为等比缩放） */
-function PlayerSlot({ channel, online, currentProduct }: { channel: string; online: number; currentProduct: string }) {
+/** 播放器槽位：有频道号即嵌官方观看页（不看 source） @since v0.5.0 */
+function PlayerSlot({
+  channel,
+  online,
+  currentProduct,
+  heightClass,
+}: {
+  channel: string;
+  online: number;
+  currentProduct: string;
+  heightClass: string;
+}) {
   if (channel !== '') {
-    return <OfficialFrame channel={channel} />;
+    return (
+      <div className={heightClass}>
+        <OfficialFrame channel={channel} />
+      </div>
+    );
   }
+
   return (
-    <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-gray-800 to-gray-900">
+    <div
+      className={`relative w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 ${heightClass}`}
+    >
       <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded bg-danger-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
         <span className="h-1.5 w-1.5 rounded-full bg-white" />
         直播中
@@ -122,9 +155,9 @@ function PlayerSlot({ channel, online, currentProduct }: { channel: string; onli
         {formatInt(online)} 人在线
       </div>
       <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-        <p className="text-xs font-medium text-white/90">模拟直播画面</p>
-        <p className="px-4 text-[10px] leading-relaxed text-white/50">
-          {currentProduct ? `正在讲解：${currentProduct}` : '配置频道号后将嵌入官方观看页'}
+        <p className="text-sm font-medium text-white/90">模拟直播画面</p>
+        <p className="px-6 text-[11px] leading-relaxed text-white/50">
+          {currentProduct ? `正在讲解：${currentProduct}` : '配置频道号后这里将嵌入官方观看页'}
         </p>
       </div>
     </div>
@@ -133,11 +166,14 @@ function PlayerSlot({ channel, online, currentProduct }: { channel: string; onli
 
 /** 观众侧互动流 @since v0.4.0（v0.5.0 从 SimViewer 抽出，两种模式共用） */
 function ViewerFeed({ state }: { state: LiveState | null }) {
-  const decisions = (state?.decisions ?? []).filter(visible).slice(-8).reverse();
+  const decisions = (state?.decisions ?? []).filter(visible).slice(-20).reverse();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <p className="mb-1 shrink-0 text-[11px] font-medium text-gray-500">观众端 · 互动流</p>
+    <div className="flex h-full min-h-0 flex-col rounded-lg border border-gray-100 bg-gray-50/60 p-2.5">
+      <div className="mb-1.5 flex shrink-0 items-center justify-between">
+        <p className="text-[11px] font-medium text-gray-500">观众端 · 互动流</p>
+        {decisions.length > 0 && <span className="text-[10px] text-gray-400">{decisions.length} 条</span>}
+      </div>
       {decisions.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center rounded border border-dashed border-gray-200 p-4 text-center">
           <p className="text-[11px] leading-relaxed text-gray-400">
@@ -151,7 +187,7 @@ function ViewerFeed({ state }: { state: LiveState | null }) {
           {decisions.map((d) => (
             <li
               key={d.id}
-              className={`rounded-md border px-2.5 py-2 ${ACTION_TONE[d.action] ?? 'border-gray-200 bg-gray-50'}`}
+              className={`shrink-0 rounded-md border px-2.5 py-2 ${ACTION_TONE[d.action] ?? 'border-gray-200 bg-gray-50'}`}
             >
               <div className="flex items-center gap-1.5">
                 <span className="rounded bg-white/70 px-1 py-0.5 text-[10px] font-medium text-gray-600">
@@ -199,13 +235,13 @@ function ChannelSwitcher({
   };
 
   return (
-    <div className="shrink-0 rounded-md border border-gray-100 bg-gray-50 p-2">
+    <div className="shrink-0 rounded-md border border-gray-200 bg-gray-50 p-2">
       <div className="flex items-center gap-1.5">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="频道号（留空=恢复 .env 配置）"
-          className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[11px]"
+          className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-2 py-1 text-[11px]"
           aria-label="频道号"
         />
         <button
@@ -229,6 +265,7 @@ interface WatchEmbedProps {
 export function WatchEmbed({ state }: WatchEmbedProps) {
   /** 后端权威频道信息（首屏拉一次，切换后以接口返回为准） @since v0.5.0 */
   const [info, setInfo] = useState<PolyvChannelInfo | null>(null);
+  const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
@@ -245,62 +282,122 @@ export function WatchEmbed({ state }: WatchEmbedProps) {
     };
   }, []);
 
+  /** Esc 关闭弹层 @since v0.6.0 */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   /** 接口不可用（或首屏未返回）时退回 SSE 帧里的 channelId @since v0.5.0 */
   const channel = info ? (info.channelId ?? '') : (state?.channelId ?? '');
-  const isRealFeed = channel !== '';
+  const isReal = channel !== '';
 
   return (
-    <section aria-label="观众端视图" className="flex h-full min-h-0 flex-col gap-2 rounded-lg bg-white p-4">
-      <div className="flex shrink-0 items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-700">观众端 · 真实观看页</h3>
-        <div className="flex items-center gap-1.5">
-          <span
-            className={`rounded px-1.5 py-0.5 text-[11px] ${
-              isRealFeed ? 'bg-success-50 text-success-800' : 'bg-gray-100 text-gray-500'
-            }`}
+    <>
+      {/* 触发器：常驻 header，平时只占一个小按钮 @since v0.6.0 */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+          isReal
+            ? 'border-success-200 bg-success-50 text-success-800 hover:bg-success-100'
+            : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'
+        }`}
+        title={isReal ? `打开官方观看页（频道 ${channel}）` : '未配置频道号，将显示模拟画面'}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${isReal ? 'bg-success-500' : 'bg-gray-300'}`} />
+        观众端预览
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-[2px]"
+            role="dialog"
+            aria-modal="true"
+            aria-label="观众端实时观看页"
+            onClick={() => setOpen(false)}
           >
-            {isRealFeed ? '真实频道' : '模拟观众端'}
-          </span>
-          <button
-            type="button"
-            onClick={() => setSwitching((v) => !v)}
-            className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
-            title="运行时切换频道（不必重启后端）"
-          >
-            {switching ? '收起' : '换频道'}
-          </button>
-          {isRealFeed && (
-            /* 侧栏里是等比缩略，1:1 观看走新窗口（官方页按 PC 布局渲染，需约 1080px 宽） @since v0.5.1 */
-            <a
-              href={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
-              title="在新窗口按原尺寸打开官方观看页"
+            <div
+              className="flex h-[min(900px,92vh)] w-[min(1480px,96vw)] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              全屏打开
-            </a>
-          )}
-        </div>
-      </div>
+              {/* 弹层头 */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5">
+                <h3 className="text-sm font-medium text-gray-700">观众端 · 真实观看页</h3>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[11px] ${
+                    isReal ? 'bg-success-50 text-success-800' : 'bg-gray-100 text-gray-500'
+                  }`}
+                >
+                  {isReal ? `频道 ${channel}` : '模拟观众端'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSwitching((v) => !v)}
+                  className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                  title="运行时切换频道（不必重启后端）"
+                >
+                  {switching ? '收起' : '换频道'}
+                </button>
+                {isReal && (
+                  <a
+                    href={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                    title="在独立窗口 1:1 打开官方观看页"
+                  >
+                    新窗口打开 ↗
+                  </a>
+                )}
+                <span className="ml-auto hidden text-[11px] text-gray-400 lg:inline">
+                  与观众访问观看页所见一致（官方开源观看 SDK）
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded border border-gray-200 px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-50"
+                  aria-label="关闭预览"
+                >
+                  关闭 ✕
+                </button>
+              </div>
 
-      {switching && (
-        <ChannelSwitcher
-          current={channel}
-          onApplied={(v) => {
-            setInfo(v);
-            setSwitching(false);
-          }}
-        />
-      )}
+              {switching && (
+                <div className="shrink-0 px-4 pt-3">
+                  <ChannelSwitcher
+                    current={channel}
+                    onApplied={(v) => {
+                      setInfo(v);
+                      setSwitching(false);
+                    }}
+                  />
+                </div>
+              )}
 
-      <PlayerSlot
-        channel={channel}
-        online={state?.metrics.online ?? 0}
-        currentProduct={state?.metrics.currentProduct ?? ''}
-      />
-      {isRealFeed && <p className="shrink-0 text-[10px] text-gray-400">频道 {channel}</p>}
-      <ViewerFeed state={state} />
-    </section>
+              {/* 弹层主体：左 = 官方观看页（撑满），右 = 观众侧互动流 */}
+              <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 lg:flex-row">
+                <div className="min-h-[220px] flex-1">
+                  <PlayerSlot
+                    channel={channel}
+                    online={state?.metrics.online ?? 0}
+                    currentProduct={state?.metrics.currentProduct ?? ''}
+                    heightClass="h-full"
+                  />
+                </div>
+                <div className="flex h-[180px] shrink-0 flex-col lg:h-auto lg:w-[300px]">
+                  <ViewerFeed state={state} />
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
