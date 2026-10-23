@@ -12,12 +12,13 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const [, , url, outFile, waitMsRaw] = process.argv;
+const [, , url, outFile, waitMsRaw, heightRaw] = process.argv;
 if (!url || !outFile) {
   console.error('用法: node scripts/shot.mjs <url> <out.png> [waitMs]');
   process.exit(1);
 }
 const waitMs = Number(waitMsRaw ?? 6000);
+const viewportH = Number(heightRaw ?? 950);
 const port = 9333;
 const profile = mkdtempSync(join(tmpdir(), 'lp-cdp-'));
 
@@ -32,7 +33,7 @@ const chrome = spawn(
     '--no-sandbox',
     '--disable-dev-shm-usage',
     '--hide-scrollbars',
-    '--window-size=1600,950',
+    `--window-size=1600,${viewportH}`,
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
     'about:blank',
@@ -83,7 +84,7 @@ await send('Page.enable');
 await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', {
   width: 1600,
-  height: 950,
+  height: viewportH,
   deviceScaleFactor: 1,
   mobile: false,
 });
