@@ -17,6 +17,9 @@
 | POST | `/api/sim/start` | 启动模拟器 | A 的「开始直播」按钮 |
 | POST | `/api/sim/stop` | 停止模拟器 | A |
 | POST | `/api/sim/scenario` | 现场手动加戏 | A / 演示控制台 |
+| GET | `/api/broadcast` | 真实推流状态（`phase` / 官方回读 `channelLive`） | A 开播按钮 |
+| POST | `/api/broadcast/start` | **真实开播**：取官方推流地址 + 本机 ffmpeg 推流 | A 开播按钮 |
+| POST | `/api/broadcast/stop` | 停止推流（频道回落未开播） | A 开播按钮 |
 | POST | `/api/mode` | 切换建议 / 半自动 / 全自动 | A 的策略面板 |
 | POST | `/api/strategy` | 更新策略阈值 | A 的策略面板 |
 | GET | `/api/decisions` | 决策列表（可按状态过滤） | A / C |
@@ -399,3 +402,100 @@ interface LiveState {
   真实/模拟双通道、资源缺失自动降级、事件流留存、决策流可见、观众端可见；
 - 决策的 `rule` 固定为 `人工指令`，`reason` 带上运营原话，复盘时能区分"AI 自主"与"人指挥"；
 - 指令表是**进程内存**：重启即清空（演示场景不需要持久化，也避免幽灵任务）。
+
+---
+
+## 七、真实开播（把画面真的推到保利威频道）
+
+> 维护：**成员 B**。目的：让「开始直播」不是一个假按钮——点下去，频道真的在播，观众端真的能看见。
+
+### 为什么是这个方案
+
+保利威**没有**「服务端一键开播」接口。开播的物理事实是「有流推进频道」，所以真实开播拆成三步，每步都用官方能力：
+
+| 步骤 | 用什么 |
+| --- | --- |
+| ① 取推流地址 | `GET /live/v3/channel/stream/get-push-url`（官方 OpenAPI，带 `txSecret` / `txTime` 时效签名） |
+| ② 把流推上去 | 本机 `ffmpeg` 按实时速率编码，`-f flv` 推到 ① 返回的 RTMP 地址 |
+| ③ 确认成功 | `GET /live/v3/channel/monitor/get-streams?channelIds=` 回读 `live=true`（不是「我以为推上了」） |
+
+> 推流地址形如 `rtmp://push-xxx.videocc.net/recordf/<streamName>?txSecret=…&txTime=…`。
+> `txSecret` 是推流凭证，**只在后端内存里存在**，任何 HTTP 响应都不会带出去；
+> 状态接口对外只暴露主机名 `pushHost`。
+
+### GET /api/broadcast
+
+```json
+{ "ok": true, "data": {
+  "active": true, "phase": "live", "channelId": "8659539",
+  "startedAt": 1792741393187, "uptimeSec": 412,
+  "source": "synthetic", "sourceLabel": "合成演示画面",
+  "channelLive": true, "pushHost": "push-t-shift.videocc.net",
+  "error": null, "ffmpegReady": true, "profile": "1280x720 @25fps 1200k"
+} }
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `phase` | `idle` / `starting`（已起流，等官方判定）/ `live` / `stopping` / `error` |
+| `active` | 推流进程是否存活（与 `channelLive` 独立：进程活着不代表官方已判定） |
+| `channelLive` | 官方 `get-streams` 回读结果，`null` = 还没查过 |
+| `ffmpegReady` | 本机 ffmpeg 是否可用；不可用时 `start` 会直接报错而不是假装成功 |
+| `source` | `synthetic`（后端合成演示画面）/ `file`（循环推本地视频） |
+
+### POST /api/broadcast/start
+
+```json
+{ "withSimulator": true, "file": "D:/videos/demo.mp4" }
+```
+
+- `withSimulator`（默认 `true`）：推流成功后顺手拉起虚拟观众数据流，一键得到「有画面 + 有数据」；
+- `file`（可选）：推本地视频文件（`-stream_loop -1` 循环），留空则推合成的品牌画面；
+- 幂等：已在推流时直接返回当前状态（`alreadyRunning: true`），不会起第二个 ffmpeg；
+- 失败语义：真实模式未开 / 凭据不全 → **409**；取地址或推流失败 → **502**，`error` 带具体原因（含 ffmpeg 输出的关键一行）。
+
+**成功回执（实测，4 秒返回）**
+
+```json
+{ "ok": true, "data": { "active": true, "phase": "live", "channelLive": true,
+  "pushHost": "push-t-shift.videocc.net", "simStarted": true, "sessionId": "smvknxua21" } }
+```
+
+### POST /api/broadcast/stop
+
+温和终止 ffmpeg（让 FLV 正常收尾），2.5 秒未退出则强杀，随后频道回落为未开播。
+
+### 配置项（`backend/.env`，全部可选）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `POLYV_BROADCAST_ENABLED` | `true` | 关掉则真实开播直接拒绝（彩排怕误触时用） |
+| `POLYV_FFMPEG_PATH` | `ffmpeg` | ffmpeg 不在 PATH 时写绝对路径 |
+| `POLYV_BROADCAST_FILE` | 空 | 指定本地视频则循环推它，等价于每次 start 都带 `file` |
+| `POLYV_BROADCAST_WIDTH/HEIGHT` | `1280` / `720` | 分辨率 |
+| `POLYV_BROADCAST_FPS` | `25` | 帧率（关键帧间隔自动取 2 倍即 2 秒，符合保利威建议） |
+| `POLYV_BROADCAST_BITRATE` | `1200k` | 视频码率 |
+
+### 自检
+
+```bash
+npm run broadcast:check -w backend            # 安全检查：ffmpeg / 推流地址 / 当前状态（不推流）
+npm run broadcast:check -w backend -- --live  # 端到端：开播 → 官方 live → 码率 → 停止 → 回落
+```
+
+实测 `--live` 结果：11 项全过（`channelLive=true`，服务端 `inBandWidth≈309kbps`、`fps=27`，停止后回落 `false`）。
+
+### 与 `/api/sim/start` 的区别（演示时别搞混）
+
+| | `/api/broadcast/start` | `/api/sim/start` |
+| --- | --- | --- |
+| 频道里有没有画面 | **有**，观众端真能看见 | 没有 |
+| 驾驶舱指标会不会动 | 不会（除非同时 `withSimulator`） | 会 |
+| 会不会影响真实直播间 | 会（这就是目的） | 不会 |
+
+### 已知限制
+
+- 推流凭证有时效（官方文档：取地址后约 30 分钟内需推流），所以**每次开播都重新取地址**，不复用；
+- 后端被强杀（关 cmd 窗口）可能留下孤儿 ffmpeg，因此推流命令带 `-t 10800`（3 小时硬上限）兜底，正常停止请用 `POST /api/broadcast/stop`；
+- 若该频道此时有别人在推流，ffmpeg 会被服务端拒绝，接口如实返回 502 与原因，不会静默失败；
+- 保利威观看页前端的「直播流正在恢复」提示与推流质量无关，是播放器还在等首个分片；用 `ffprobe` 直接拉 `pull-t-shift` 的 FLV 地址可确认真有画面（本次已验证：h264 1280x720 25fps + aac）。

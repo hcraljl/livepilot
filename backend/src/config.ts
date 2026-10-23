@@ -57,6 +57,25 @@ export const config = {
   },
 
   /**
+   * 真实开播：本机 ffmpeg 推流到保利威频道。
+   *
+   * 保利威没有「服务端一键开播」接口 —— 开播的物理事实是「有流推进频道」。
+   * 所以真实开播 = 官方 get-push-url 取地址 + 本地 ffmpeg 推流。
+   * 不配置也能用：默认推一路合成的演示画面（品牌底 + 计时 + 动态进度条）。
+   */
+  broadcast: {
+    enabled: bool('POLYV_BROADCAST_ENABLED', true),
+    /** ffmpeg 可执行文件（在 PATH 里就写 ffmpeg） */
+    ffmpegPath: str('POLYV_FFMPEG_PATH', 'ffmpeg'),
+    /** 指定本地视频文件则循环推它；留空推合成演示画面 */
+    file: str('POLYV_BROADCAST_FILE'),
+    width: num('POLYV_BROADCAST_WIDTH', 1280),
+    height: num('POLYV_BROADCAST_HEIGHT', 720),
+    fps: num('POLYV_BROADCAST_FPS', 25),
+    bitrate: str('POLYV_BROADCAST_BITRATE', '1200k'),
+  },
+
+  /**
    * 是否真正调用保利威 OpenAPI。
    * false（默认）= 模拟执行，绝不会污染真实频道，适合彩排；
    * true = 真实打频道，需要 appId/appSecret/channelId 齐备。
@@ -123,4 +142,7 @@ export const describeEnv = (): Record<string, string> => ({
   polyvChannelId: config.polyv.channelId || '未配置',
   deepseekKey: config.deepseek.apiKey ? '已配置(已隐藏)' : '未配置（引擎走模板兜底）',
   simulator: `${config.simulator.totalMin}min / speed x${config.simulator.speed}`,
+  realBroadcast: config.broadcast.enabled
+    ? `开启（${config.broadcast.width}x${config.broadcast.height} ${config.broadcast.file || '合成画面'}）`
+    : '关闭',
 });

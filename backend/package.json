@@ -13,7 +13,8 @@
     "smoke": "tsx src/scripts/smoke.ts",
     "engine:demo": "tsx src/engine/harness.ts",
     "polyv:res": "tsx src/scripts/polyv-resources.ts",
-    "polyv:live": "tsx src/scripts/live-test.ts"
+    "polyv:live": "tsx src/scripts/live-test.ts",
+    "broadcast:check": "tsx src/scripts/broadcast-check.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

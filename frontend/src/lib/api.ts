@@ -20,6 +20,7 @@
 import type {
   ActionReq,
   ActionType,
+  BroadcastStatus,
   CopilotCandidatesResp,
   Decision,
   LiveEvent,
@@ -27,6 +28,7 @@ import type {
   Mode,
   PolyvCallResult,
   ReplayResp,
+  StartBroadcastReq,
   StartSimReq,
   StrategyConfig,
 } from '@livepilot/shared';
@@ -271,3 +273,18 @@ export const fetchCommands = (): Promise<{ commands: ScheduledCommandInfo[] }> =
 /** DELETE /api/commands/:id —— 取消待执行指令 @since v0.7.0 */
 export const cancelCommand = (id: string): Promise<{ command: ScheduledCommandInfo }> =>
   request<{ command: ScheduledCommandInfo }>(`/api/commands/${id}`, { method: 'DELETE' });
+
+/** GET /api/broadcast —— 真实推流状态（active / phase / 官方回读的 channelLive） @since v0.8.0 */
+export const fetchBroadcast = (): Promise<BroadcastStatus> => get<BroadcastStatus>('/api/broadcast');
+
+/**
+ * POST /api/broadcast/start —— 真实开播：取官方推流地址 + 本机 ffmpeg 推流 @since v0.8.0
+ *
+ * 这是唯一会「真的把画面推到保利威频道」的接口，观众端能看见。
+ * 默认同时拉起虚拟观众数据流（withSimulator=true），让驾驶舱的在线人数/GMV 一起动起来。
+ */
+export const startBroadcast = (req: StartBroadcastReq = {}): Promise<BroadcastStatus> =>
+  post<BroadcastStatus>('/api/broadcast/start', req);
+
+/** POST /api/broadcast/stop —— 停止推流（频道回落为未开播） @since v0.8.0 */
+export const stopBroadcast = (): Promise<BroadcastStatus> => post<BroadcastStatus>('/api/broadcast/stop');

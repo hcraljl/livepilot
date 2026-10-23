@@ -285,13 +285,23 @@ function ChannelSwitcher({
 
 interface WatchEmbedProps {
   state: LiveState | null;
+  /**
+   * 外部打开信号：数值变化即自动弹出观众端（真实开播成功后由 App 递增）@since v0.8.0
+   * 用「递增计数」而不是 boolean，才能做到「连续开播两次都能再弹一次」。
+   */
+  openSignal?: number;
 }
 
-export function WatchEmbed({ state }: WatchEmbedProps) {
+export function WatchEmbed({ state, openSignal }: WatchEmbedProps) {
   /** 后端权威频道信息（首屏拉一次，切换后以接口返回为准） @since v0.5.0 */
   const [info, setInfo] = useState<PolyvChannelInfo | null>(null);
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  /** 真实开播成功后自动打开：让「点开播 → 立刻看到观众视角」连成一步 @since v0.8.0 */
+  useEffect(() => {
+    if (openSignal && openSignal > 0) setOpen(true);
+  }, [openSignal]);
 
   useEffect(() => {
     let cancelled = false;

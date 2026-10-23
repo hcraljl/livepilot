@@ -17,6 +17,7 @@ import { apiRouter } from './routes/api.ts';
 import { sseRouter } from './routes/sse.ts';
 import { webhookRouter } from './routes/webhook.ts';
 import { archiveSession } from './services/session-archive.ts';
+import { broadcast } from './services/broadcast.ts';
 
 const app = express();
 
@@ -184,9 +185,19 @@ const server = app.listen(config.port, () => {
   console.log(`  健康检查   ${base}/health`);
   console.log(`  Polyv 能力 ${base}/api/polyv/capabilities`);
   console.log(`  Polyv 模式 ${base}/api/polyv/mode  （模拟演练 / 真实频道，可运行时切换）`);
+  console.log(`  真实开播   ${base}/api/broadcast/start （取官方推流地址 + 本机 ffmpeg 推流）`);
   console.log(`  Webhook   ${base}/polyv/webhook`);
   console.log('==========================================\n');
   void mountEngine();
+  void broadcast
+    .ensureFfmpeg()
+    .then((ready) =>
+      console.log(
+        ready
+          ? `[broadcast] ✅ ffmpeg 可用 —— 点「真实开播」会把画面真的推到频道 ${polyvClient.channelId}`
+          : '[broadcast] ⚠️ 未找到 ffmpeg —— 真实开播不可用（装 ffmpeg 或设 POLYV_FFMPEG_PATH）',
+      ),
+    );
 });
 
 server.on('error', (err: NodeJS.ErrnoException) => {
@@ -200,8 +211,14 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 
 const shutdown = (signal: string) => {
   console.log(`\n[server] 收到 ${signal}，正在关闭…`);
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000).unref();
+  // 必须停掉推流：否则 ffmpeg 会以孤儿进程继续往真实频道推流
+  void broadcast
+    .stop()
+    .catch(() => undefined)
+    .finally(() => {
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 3000).unref();
+    });
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

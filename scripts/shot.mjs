@@ -96,19 +96,68 @@ await send('Page.navigate', { url });
 await sleep(waitMs);
 
 // 可选：按可见文字点一下（例如观看页的「观看直播」按钮），再等一轮
-if (clickText) {
-  const clickExpr = `
+//
+// v0.8.0：改用 CDP 真实鼠标事件（Input.dispatchMouseEvent）而不是 element.click()。
+// 原因：观看页播放器要求「用户手势」才允许起播，脚本调用 click() 不算手势，
+// 点完仍停在封面；真实鼠标事件会被浏览器认定为用户操作，播放器才会真的起播。
+//
+// 多步点击：SHOT_CLICKS="观看直播|点击播放"（用 | 分隔，按顺序点，每步之间等 waitMs）
+const clickQueue = process.env.SHOT_CLICKS
+  ? process.env.SHOT_CLICKS.split('|').map((v) => v.trim()).filter(Boolean)
+  : clickText
+    ? [clickText]
+    : [];
+
+for (const label of clickQueue) {
+  const rectExpr = `
     (() => {
-      const target = ${JSON.stringify(clickText)};
+      const target = ${JSON.stringify(label)};
       const nodes = [...document.querySelectorAll('button, a, div, span')];
-      const hit = nodes.find((n) => n.textContent.trim() === target) ?? nodes.find((n) => n.textContent.includes(target));
-      if (!hit) return 'NOT_FOUND';
-      hit.click();
-      return 'CLICKED';
+      const hits = nodes.filter((n) => n.textContent.trim() === target);
+      const pool = hits.length > 0 ? hits : nodes.filter((n) => n.textContent.includes(target));
+      // 取面积最小的命中元素：文字相同时外层容器也会命中，
+      // 点容器中心往往落在空白处（实测会点到旁边的留白）
+      let best = null;
+      for (const n of pool) {
+        const r = n.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        const area = r.width * r.height;
+        if (!best || area < best.area) best = { area, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      }
+      return best ? { x: best.x, y: best.y } : null;
     })()`;
-  const r = await send('Runtime.evaluate', { expression: clickExpr, returnByValue: true });
-  console.log(`点击「${clickText}」→ ${r.result?.result?.value}`);
+  const rr = await send('Runtime.evaluate', { expression: rectExpr, returnByValue: true });
+  const pt = rr.result?.result?.value;
+  if (!pt) {
+    console.log(`点击「${label}」→ NOT_FOUND`);
+    continue;
+  }
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+    await send('Input.dispatchMouseEvent', {
+      type,
+      x: pt.x,
+      y: pt.y,
+      button: 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      clickCount: 1,
+    });
+  }
+  console.log(`点击「${label}」→ 真实鼠标事件 (${Math.round(pt.x)}, ${Math.round(pt.y)})`);
   await sleep(Math.max(waitMs, 5000));
+}
+
+// SHOT_NET=1 时把播放器实际请求的流地址打出来（排查「直播流正在恢复」这类拉流问题）
+if (process.env.SHOT_NET === '1') {
+  const net = await send('Runtime.evaluate', {
+    expression: `JSON.stringify(performance.getEntriesByType('resource')
+      .map((e) => e.name)
+      .filter((n) => /\\.m3u8|\\.flv|\\.ts|live|play|stream/i.test(n))
+      .slice(-30), null, 1)`,
+    returnByValue: true,
+  });
+  console.log('--- 播放器网络请求 ---');
+  console.log(net.result?.result?.value ?? '(取不到)');
+  console.log('----------------------');
 }
 
 // SHOT_TEXT=1 时把页面可见文字打出来，便于判断停在哪个状态（未登录 / 未开播 / 播放中）

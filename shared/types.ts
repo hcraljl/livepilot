@@ -402,3 +402,43 @@ export interface ReplayResp {
   /** C 扩展：完整复盘报告 */
   review?: ReviewReport;
 }
+
+/**
+ * 真实开播（本机 ffmpeg 推流到保利威频道）状态 @since v0.8.0
+ *
+ * 为什么不叫「开播 API」：保利威没有服务端一键开播接口，
+ * 开播的物理事实是「有流推进频道」，所以真实开播 = 官方 get-push-url 取地址 + 本地推流。
+ */
+export type BroadcastPhase = 'idle' | 'starting' | 'live' | 'stopping' | 'error';
+
+/** synthetic = 后端合成的演示画面；file = 循环推本地视频文件 */
+export type BroadcastSource = 'synthetic' | 'file';
+
+export interface BroadcastStatus {
+  /** 推流进程是否存活 */
+  active: boolean;
+  phase: BroadcastPhase;
+  channelId: string;
+  startedAt: number | null;
+  /** 已推流时长（秒） */
+  uptimeSec: number;
+  source: BroadcastSource;
+  sourceLabel: string;
+  /** 官方接口回读：频道是否处于直播中（null = 还没查到） */
+  channelLive: boolean | null;
+  /** 推流地址主机（脱敏，不含 txSecret —— 推流凭证绝不下发前端） */
+  pushHost: string;
+  error: string | null;
+  /** 本机 ffmpeg 是否可用 */
+  ffmpegReady: boolean;
+  /** 画面规格：1280x720 @25fps 1200k */
+  profile: string;
+}
+
+/** POST /api/broadcast/start @since v0.8.0 */
+export interface StartBroadcastReq {
+  /** 推本地视频文件（绝对路径），留空则推合成演示画面 */
+  file?: string;
+  /** 是否同时拉起虚拟观众数据流，默认 true */
+  withSimulator?: boolean;
+}

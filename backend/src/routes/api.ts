@@ -16,6 +16,7 @@ import { buildFallbackReplay } from '../services/replay-fallback.ts';
 import { config } from '../config.ts';
 import { copilotRouter } from './copilot.ts';
 import { commandRouter } from './command.ts';
+import { broadcastRouter } from './broadcast.ts';
 import {
   POLYV_API_OPERATIONS,
   POLYV_COMMON_AUTH_PARAMS,
@@ -324,3 +325,6 @@ apiRouter.use('/copilot', copilotRouter);
 
 // 人工指令台：自然语言 → 解析 → 立即执行 / 定时执行（人机协作主链路）
 apiRouter.use('/', commandRouter);
+
+// 真实开播：官方 get-push-url + 本机 ffmpeg 推流（观众端真的能看见画面）
+apiRouter.use('/', broadcastRouter);

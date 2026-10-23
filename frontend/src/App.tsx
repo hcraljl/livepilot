@@ -34,6 +34,8 @@ const VIEW_TABS: { key: View; label: string }[] = [
 export default function App() {
   const { state, status, error } = useSSE();
   const [view, setView] = useState<View>('dashboard');
+  /** 真实开播成功后自增：WatchEmbed 见到变化就自动弹出观众端 @since v0.8.0 */
+  const [watchOpenSignal, setWatchOpenSignal] = useState(0);
 
   return (
     <div className="flex h-screen flex-col bg-brand-50 text-gray-900">
@@ -61,7 +63,7 @@ export default function App() {
         )}
         <div className="ml-auto flex items-center gap-2">
           {/* 观众端观看页改为弹层：平时不占版面，点这里弹出大窗 @since v0.6.0 */}
-          {view === 'dashboard' && <WatchEmbed state={state} />}
+          {view === 'dashboard' && <WatchEmbed state={state} openSignal={watchOpenSignal} />}
           <ConnectionBadge status={status} />
         </div>
       </header>
@@ -74,7 +76,7 @@ export default function App() {
         {view === 'dashboard' ? (
           <ErrorBoundary key="dashboard" fallbackTitle="看板渲染异常，已降级（演示不中断）">
             <SplitView>
-              <ControlBar state={state} />
+              <ControlBar state={state} onLiveStarted={() => setWatchOpenSignal((n) => n + 1)} />
               {/* 指挥台：运营说一句 → AI 解析 → 立即/定时执行 @since v0.7.0 */}
               <CommandBar state={state} />
               <MetricCards state={state} />
