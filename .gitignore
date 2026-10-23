@@ -15,3 +15,7 @@ backend/data/
 
 # 观看页构建临时目录（scripts/build-watch-sdk.sh 会拉约 850MB 依赖）
 .tmp/
+
+# 本地运行日志（start.bat 启动时生成）
+backend/.run.log
+backend/.run.err.log
