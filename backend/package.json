@@ -11,6 +11,7 @@
     "sim:check": "tsx src/scripts/sim-check.ts",
     "smoke": "tsx src/scripts/smoke.ts",
     "engine:demo": "tsx src/engine/harness.ts",
+    "polyv:res": "tsx src/scripts/polyv-resources.ts",
     "polyv:live": "tsx src/scripts/live-test.ts"
   },
   "dependencies": {

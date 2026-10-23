@@ -75,7 +75,8 @@ export const REAL_SPECS: Record<ActionType, RealSpec> = {
     docUrl: 'https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/',
     build: ({ channelId, params }) => ({
       query: { channelId },
-      bodyKind: 'form',
+      // 实测：该接口只接受 JSON body，form-urlencoded 会被拒（code=10001 Content type not supported）
+      bodyKind: 'json-object',
       body: {
         activityName: pick(params, 'activityName', 'AI 福袋抽奖'),
         lotteryCondition: 'none',
@@ -93,7 +94,7 @@ export const REAL_SPECS: Record<ActionType, RealSpec> = {
     docUrl: 'https://help.polyv.net/live/api/v4/channel/lottery_activity/lottery_activity_create/',
     build: ({ channelId, params }) => ({
       query: { channelId },
-      bodyKind: 'form',
+      bodyKind: 'json-object',
       body: {
         activityName: pick(params, 'activityName', '下单抽好礼'),
         // 官方 lotteryCondition 没有「商品」类型，最接近的福利语义是评论抽奖
