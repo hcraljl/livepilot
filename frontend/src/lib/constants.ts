@@ -1,20 +1,11 @@
 /**
  * 全局常量与枚举标签表（契约枚举的中文展示名，组件禁止各写各的）
- * 负责人：A · @since v0.1.0（v0.2.0 扩充标签表）
+ * 负责人：A · @since v0.1.0（v0.2.0 扩充标签表；v0.5.0 移除 M1 遗留的 PLACEHOLDER_MODULES）
+ *
+ * 维护约定：`Record<契约枚举, string>` 的完整性由 TypeScript 保证——
+ * 契约增删枚举时这里会编译报错，是**有意的**；不要用 Partial/宽泛类型绕开。
  */
 import type { ActionType, AiLevel, DecisionStatus, Mode } from '@livepilot/shared';
-
-/** M1 占位模块清单（历史保留，App 已不用） @since v0.1.0 */
-export const PLACEHOLDER_MODULES: readonly string[] = [
-  'MetricCards · 6 指标卡',
-  'Funnel · 转化漏斗',
-  'InteractionTimeline · 互动时间轴',
-  'DecisionStream · AI 决策流',
-  'StrategyPanel + ControlBar · 模式与直播控制',
-  'ProductRanking · 商品转化榜',
-  'WatchEmbed · 右屏观看页',
-  'ReviewPage · 智能复盘',
-];
 
 /** 三档模式中文名 @since v0.2.0 */
 export const MODE_LABELS: Record<Mode, string> = {

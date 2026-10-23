@@ -9,3 +9,9 @@ coverage/
 
 # 场次留档 / 复盘经验库（演示数据，不入库）
 backend/data/
+
+# 工作区助手数据（AI 会话记忆/自动化状态，属本地工具产物，不入库）
+.workbuddy/
+
+# 观看页构建临时目录（scripts/build-watch-sdk.sh 会拉约 850MB 依赖）
+.tmp/

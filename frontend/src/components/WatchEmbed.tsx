@@ -1,9 +1,9 @@
 /**
  * WatchEmbed —— 右屏：观众端视图（播放器槽位 + 观众侧互动流）
  *
- * 结构（v0.5.0 重构）：
- *  ┌ 标题 / 状态徽章 / 切换频道
- *  ├ 播放器槽位：有频道号 → 嵌 B 的官方观看 SDK 页（/watch/index.html?channelId=…）
+ * 结构（v0.5.1）：
+ *  ┌ 标题 / 状态徽章 / 换频道 / 全屏打开
+ *  ├ 播放器槽位：有频道号 → 嵌官方开源观看页（后端托管的 /watch/?channelId=…，按宽度等比缩放）
  *  │              无频道号 → 模拟画面占位（LIVE 角标 + 在线人数 + 当前讲解商品）
  *  └ 观众侧互动流：执行态决策 → 抽奖 / 答题卡 / 公告 / 商品推送
  *
@@ -12,20 +12,37 @@
  * 而 `channelId` 取的是 effectiveChannelId（.env 或运行时覆盖）——真实频道 + 模拟动作的
  * 演示组合下，旧条件会把右屏错误退回模拟占位，丢掉真实直播画面（B 已反馈该现象）。
  *
+ * v0.5.1 两处一致性修正：
+ *  1. 地址由写死的 /watch/index.html 改为后端托管的 /watch/（官方产物优先、兜底页自动回退），
+ *     vite.config.ts 同步加了 /watch 代理，dev 与生产看到同一份页面；
+ *  2. 官方页按 PC 布局渲染（实测需约 1076px 宽），窄列里改为等比缩放 + 全屏入口，消除横向滚动。
+ *
  * 频道号以 GET /api/polyv/channel 为准（含 embeddable 判定），并支持运行时切换
  * （POST /api/polyv/channel，演示现场换频道不必重启后端）。
  *
  * 契约：LiveState.channelId / decisions / metrics；PolyvChannelInfo（API.md v2）
- * 负责人：A · @since v0.2.0（A-12；v0.3.0 嵌官方 SDK 页；v0.4.0 模拟观众端；v0.5.0 频道判定与切换）
+ * 负责人：A · @since v0.2.0（A-12；v0.3.0 嵌官方 SDK 页；v0.4.0 模拟观众端；v0.5.0 频道判定与切换；v0.5.1 地址与缩放）
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Decision, LiveState } from '@livepilot/shared';
 import { ACTION_LABELS } from '../lib/constants';
 import { formatInt } from '../lib/format';
 import { fetchPolyvChannel, setPolyvChannel, type PolyvChannelInfo } from '../lib/api';
 
-/** 本地官方观看 SDK 演示页（B 提供，见 frontend/watch/index.html） @since v0.3.0 */
-const WATCH_PAGE = '/watch/index.html';
+/**
+ * 官方观看页地址（v0.5.1 修正）
+ *
+ * 由**后端**托管并决定用哪一份：`/watch/` 优先官方开源观看页构建产物
+ * （frontend/watch-sdk，Vue2 + @polyv/live-watch-sdk，带播放器/聊天室/互动接收端），
+ * 没有产物时回退轻量页（frontend/watch），另有 `/watch-lite/` 可强制兜底。
+ *
+ * 因此这里**不要**写死成 `/watch/index.html`：那样在 dev 下会绕过后端、
+ * 直接命中 Vite 静态目录里的轻量页，造成「开发看兜底页、生产看官方页」的不一致。
+ * vite.config.ts 已把 /watch 代理到后端，两侧同源同内容。
+ *
+ * @since v0.3.0（v0.5.1 改指向后端托管的 /watch/）
+ */
+const WATCH_PAGE = '/watch/';
 
 /** 观众端互动卡片的配色（按动作类型区分，弱化但可辨） @since v0.4.0 */
 const ACTION_TONE: Record<string, string> = {
@@ -41,21 +58,59 @@ const ACTION_TONE: Record<string, string> = {
 /** 观众端只关心「已经发生」的互动（建议态观众看不到） @since v0.4.0 */
 const visible = (d: Decision): boolean => d.status === 'executed';
 
-/** 播放器槽位：有频道号即嵌官方观看页（不看 source） @since v0.5.0 */
+/**
+ * 官方观看页的逻辑尺寸（实测依据：iframe 宽 351px 时页面 scrollWidth ≈ 1076px）
+ * 它按 PC 布局渲染、不随 iframe 宽度收缩，直接嵌进 400px 侧栏会出现横向滚动条 + 内容被裁。
+ * 处理方式：以 1080 逻辑宽渲染，再按容器宽度等比缩放（缩略但完整，不出现横向滚动），
+ * 同时提供「全屏打开」给需要 1:1 观看的场景。
+ * @since v0.5.1
+ */
+const OFFICIAL_LOGICAL_W = 1080;
+/** iframe 逻辑高度（远大于可视槽位，靠外层裁剪显示页面顶部） @since v0.5.1 */
+const OFFICIAL_LOGICAL_H = 1400;
+
+/** 按宽度等比缩放的官方观看页 @since v0.5.1 */
+function OfficialFrame({ channel }: { channel: string }) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0.34);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0].contentRect.width;
+      if (w > 0) setScale(Math.min(w / OFFICIAL_LOGICAL_W, 1));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={wrapRef}
+      className="h-[42vh] max-h-[460px] min-h-[220px] w-full shrink-0 overflow-hidden rounded-md border border-gray-100 bg-gray-900"
+    >
+      <iframe
+        title="保利威直播观看页（官方开源观看 SDK）"
+        src={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
+        sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"
+        referrerPolicy="no-referrer"
+        style={{
+          width: OFFICIAL_LOGICAL_W,
+          height: OFFICIAL_LOGICAL_H,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          border: 0,
+        }}
+      />
+    </div>
+  );
+}
+
+/** 播放器槽位：有频道号即嵌官方观看页（不看 source） @since v0.5.0（v0.5.1 改为等比缩放） */
 function PlayerSlot({ channel, online, currentProduct }: { channel: string; online: number; currentProduct: string }) {
   if (channel !== '') {
-    return (
-      /* 官方观看页是完整页面（非纯播放器），16:9 会裁掉下半截按钮，故用视口比例给足高度 @since v0.5.0 */
-      <div className="h-[38vh] max-h-[420px] min-h-[200px] w-full shrink-0 overflow-hidden rounded-md border border-gray-100 bg-gray-900">
-        <iframe
-          title="保利威直播观看页（官方观看 SDK）"
-          src={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
-          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"
-          referrerPolicy="no-referrer"
-          className="h-full w-full"
-        />
-      </div>
-    );
+    return <OfficialFrame channel={channel} />;
   }
   return (
     <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-gray-800 to-gray-900">
@@ -214,6 +269,18 @@ export function WatchEmbed({ state }: WatchEmbedProps) {
           >
             {switching ? '收起' : '换频道'}
           </button>
+          {isRealFeed && (
+            /* 侧栏里是等比缩略，1:1 观看走新窗口（官方页按 PC 布局渲染，需约 1080px 宽） @since v0.5.1 */
+            <a
+              href={`${WATCH_PAGE}?channelId=${encodeURIComponent(channel)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+              title="在新窗口按原尺寸打开官方观看页"
+            >
+              全屏打开
+            </a>
+          )}
         </div>
       </div>
 

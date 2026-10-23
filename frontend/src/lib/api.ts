@@ -1,11 +1,21 @@
 /**
  * REST API 层 —— 统一处理 { ok, data } 响应信封与错误
  *
- * 契约依据：API.md v1.1（B 冻结）+ backend/src/routes/api.ts 实测形状
- * 负责人：A · @since v0.2.0
+ * 契约依据：API.md（B 冻结）+ backend/src/routes/api.ts 实测形状
+ * 负责人：A · @since v0.2.0（v0.5.0 补消费状态表）
  *
  * 信封约定：POST 类统一 { ok: true, data } / { ok: false, error, code }；
  * 例外（直返业务对象）：GET /api/state、GET /api/stream、GET /api/replay。
+ *
+ * 消费状态（避免把"未被界面调用"误判为死代码而随手删除）：
+ *   已被界面使用：startSim / stopSim / injectScenario / setMode / updateStrategy /
+ *                 confirmDecision / fetchReplay / fetchCopilotCandidates / applyCopilot /
+ *                 fetchPolyvChannel / setPolyvChannel
+ *   契约已封装、界面暂未消费：fetchState（SSE 首帧已覆盖）、fetchDecisions / fetchEvents
+ *                 （时间轴与事件流用 SSE 全量帧）、triggerAction（运营手点，暂由副驾面板承担）、
+ *                 fetchCapabilities / fetchPolyvOperations（路演取证，暂用文档代替）
+ *   → 这些函数保持与 API.md 一一对应，接口不变即无需改动；若最终确不使用，应连同 API.md
+ *     的对应条目一起清理，而不是只删前端一半。
  */
 import type {
   ActionReq,

@@ -311,6 +311,40 @@ frontend/
 
 **验证（Edge CDP，7/7 通过）**：无频道 → 模拟观众端；点「换频道」→ 输入 8659539 → 切换 → iframe `src=/watch/index.html?channelId=8659539`、徽章「真实频道」、显示频道号、互动流保留、无报错；iframe 内部页面已自动带上频道号（截图 `screenshots/10-watch-real-channel.png`）。
 
+### 8.6 仓库一致性审查与 v0.5.1 优化（2026-10-23 13:35）
+
+**方法**：先 `align-remote.js` 把本地对齐到远端 `0e3b443`（逐 blob 校验 237/237 一致），再逐项读结构（shared / backend / frontend / scripts / docs）、配置（root·frontend·backend package.json、vite、tsconfig×2、.gitignore）、依赖（源码 import 与 package.json 对账），并用 Edge CDP 实测验证。
+
+| # | 发现（问题） | 类型 | 调整 | 目的 | 预期效果 |
+|---|---|---|---|---|---|
+| 1 | 观看页地址写死 `/watch/index.html`：dev 下命中 Vite 静态目录里的**轻量兜底页**，而生产由后端 `/watch/` 托管**官方开源观看页**（watch-sdk 存在时优先） | **dev/prod 不一致**（最严重） | `WATCH_PAGE` 改为 `/watch/`；`vite.config.ts` 把 `/watch`、`/demo` 代理到后端 | 让"用哪一份观看页"只由后端一处决定 | 右屏在 dev 与生产打开同一份官方页：真实播放器 + 聊天室 + 互动接收端（抽奖/答题卡/签到/卡片/公告） |
+| 2 | 官方页在 400px 侧栏里横向溢出（实测 iframe 351px 时 `scrollWidth≈1076px`，按 PC 布局不随宽度收缩） | 布局缺陷 | 以 1080 逻辑宽渲染 + 按容器宽度等比缩放；面板加「全屏打开」（新窗口 1:1） | 消除横向滚动与内容截断，同时保留 1:1 观看入口 | 侧栏内一屏看全播放器与频道信息卡；需要看清细节时一键全屏 |
+| 3 | `frontend/package.json` 版本 `0.1.0`，与文档迭代（v0.2→v0.5.x）脱节 | 版本一致性 | 升到 `0.5.0` | 构建日志/`npm ls` 能对上文档的版本语义 | 任何一次构建输出都可追溯到功能里程碑（SemVer §3） |
+| 4 | `@polyv/live-watch-sdk`、`@polyv/interactions-receive-sdk-ui-default` 在 `src/` 中**零 import**（观看页用的是入库的 UMD 产物），却挂在 `dependencies` | 依赖语义错误 | 移入 `devDependencies` | 运行时依赖只剩 `react/react-dom/@livepilot/shared`，语义正确 | `npm ci --omit=dev` 语义成立；新人看依赖即知真实运行时组合 |
+| 5 | `.gitignore` 缺 `.workbuddy/`（AI 会话记忆）与 `.tmp/`（`build-watch-sdk.sh` 会拉约 850MB） | 仓库卫生 | 补两条并注明原因 | 防止内部笔记与大体积临时目录被 `git add -A` 带入 | 仓库只留可交付内容；误提交风险归零 |
+| 6 | `constants.ts` 里 `PLACEHOLDER_MODULES` 是 M1 遗留、已无任何引用 | 死代码 | 删除；并在文件头写明"标签表完整性由 TS 保证，禁止用 Partial 绕开" | 减少误导 | 改契约枚举时编译期即报错（有意为之），不再有第二份"模块清单"真相 |
+| 7 | `api.ts` 有 6 个导出未被界面消费（`fetchState/fetchDecisions/fetchEvents/triggerAction/fetchCapabilities/fetchPolyvOperations`），易被误判为死代码随手删掉 | 可维护性 | 文件头补「消费状态表」：哪些在用、哪些是契约覆盖待消费、以及"要删须连 API.md 一起清" | 保留接口与契约一一对应的完整性 | 后人不必反推每个函数的去留，删除动作有明确约束 |
+| 8 | 根 `verify` 只跑后端 typecheck，前端类型错误可漏过 | 自检覆盖不全 | `verify` 改用 `npm run typecheck`（含 backend + frontend） | 一条命令覆盖两端 | 提交前自检不再漏前端；CI 若接 `verify` 即刻生效 |
+| 9 | README 入口表写 `/watch/` = "观看 SDK + 模拟开播按钮"（实为轻量页描述），且未提 `/watch-lite/` | 文档与实现不符 | 更正两行并补 `/watch/` 代理与缩放说明 | 文档成为可信入口索引 | 队友/评委按 README 点开即所见即所得 |
+
+**验证（全部实测）**
+
+- `align-remote.js`：远端 `0e3b443` → 237/237 blob 一致（含 B 的「下线 coupon：8→7 动作」契约变更，前端 `ACTION_LABELS` 已随之收敛为 7 项）
+- `tsc --noEmit`（backend + frontend）· `vite build`（50 模块 / 190.11 kB）零错误
+- `npm run verify`（含新增前端 typecheck）全绿：签名与官方样例逐位一致 · 模拟器流水线自检通过
+- `npm run contract:check`：`isLiveState()` 首帧守卫通过 · strategy 12 字段 · 决策/事件全合规
+- Edge CDP **5/5**：iframe `src=/watch/?channelId=1234568`、iframe 内确为官方页（含 `chunk-polyv`、有 `video` 元素、内容高 1400）、徽章=真实频道、嵌入高度 474px
+- Edge CDP **9/9** 回归：时间轴 220px、决策流进首屏、观众端互动流、720p 无横向溢出
+- 截图：`screenshots/11-official-watch.png`（右屏官方观看页缩略 + 全屏入口）
+
+**评估后未做（留作建议，避免赛前引入风险）**
+
+| 建议 | 理由 | 为何暂不做 |
+|---|---|---|
+| ESLint + Prettier | 目前靠 TS strict + 人工约定，风格靠 review | 会一次性改写大量文件、制造无意义 diff；赛后再上一轮格式化更划算 |
+| 单命令并行起前后端（`npm run dev`） | 现在要开两个终端 | 需引入 `concurrently` 或新增共享脚本，改动落在团队公共区（scripts/），赛前不宜动 |
+| 观看页产物体积（watch-sdk 15.15MB + UMD 1.1MB） | 离线演示必需，已有构建脚本可复现 | 未超 50MB，无需 LFS；如后续膨胀再考虑 |
+
 ---
 
 *本文档由 A 维护；规范变更走 PR（§3.5）。配套架构图与时间线见项目会话记录。*
