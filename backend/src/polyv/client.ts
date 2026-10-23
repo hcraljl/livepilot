@@ -328,6 +328,16 @@ export class PolyvClient {
       if (!ok) {
         console.error(`[polyv] ✗ ${endpoint} code=${result.code} ${result.message}`);
         console.error(`[polyv]   请求预览：${req.preview}`);
+        // 抽奖活动创建有数量上限（实测 20 条封顶，第 21 条返回 40028）。
+        // 演示彩排多跑几场必然撞满，此时复用一条已有活动重新发起，
+        // 而不是让整条互动链报错哑火。复用事实会写进 message，不伪装成新建。
+        if (
+          result.code === 40028 &&
+          (action === 'lottery' || action === 'welfare_lottery') &&
+          config.polyv.autoReuseLottery
+        ) {
+          return await this.reuseLotteryActivity(action, opts, started);
+        }
       } else {
         console.log(`[polyv] ✓ ${endpoint} ${result.latencyMs}ms`);
       }
@@ -339,6 +349,125 @@ export class PolyvClient {
           : (err as Error).message;
       console.error(`[polyv] ✗ ${endpoint} 异常：${message}`);
       return { ok: false, mock: false, code: -1, message, endpoint, latencyMs: Date.now() - started };
+    }
+  }
+
+  /**
+   * 抽奖活动达上限时复用已有活动。
+   *
+   * 官方 `lottery-activity/create` 到 20 条返回 40028「抽奖活动创建已达上限」，
+   * delete 接口需要脚本清理、演示现场不可能临时去后台删。
+   * 因此取列表里一条活动（优先无条件且启用中），用 `update` 改成本次要发的活动。
+   *
+   * 语义诚实性：message 明确写「复用活动 #id」，不声称是新建；endpoint 指向 update。
+   */
+  private async reuseLotteryActivity(
+    action: ActionType,
+    opts: ExecuteOptions,
+    startedAt: number,
+  ): Promise<PolyvCallResult> {
+    const channelId = opts.channelId || this.channelId;
+    const params = opts.params ?? {};
+    const pick = (key: string, fallback: string): string => {
+      const v = params[key];
+      return typeof v === 'string' && v.trim() ? v : fallback;
+    };
+    const pickNum = (key: string, fallback: number): number => {
+      const v = Number(params[key]);
+      return Number.isFinite(v) && v > 0 ? v : fallback;
+    };
+
+    try {
+      // 1) 找一条可复用的活动
+      const listQuery = signParams({ channelId, page: '1', pageSize: '50' }) as Record<string, string>;
+      const listUrl = `${config.polyv.apiBase}/live/v4/channel/lottery-activity/list?${new URLSearchParams(
+        Object.entries(listQuery).map(([k, v]) => [k, String(v)]),
+      ).toString()}`;
+      const listRes = await fetch(listUrl, { signal: AbortSignal.timeout(config.polyv.timeoutMs) });
+      const listJson = (await listRes.json().catch(() => ({}))) as {
+        data?: { contents?: Array<{ id: number; activityName?: string; lotteryCondition?: string; status?: string }> };
+      };
+      const items = listJson.data?.contents ?? [];
+      if (!items.length) {
+        return {
+          ok: false,
+          mock: false,
+          code: 40028,
+          message: '抽奖活动创建已达上限，且账号内没有可复用的活动（请在后台删除旧活动）',
+          endpoint: 'POST /live/v4/channel/lottery-activity/create',
+          latencyMs: Date.now() - startedAt,
+        };
+      }
+      const reusable =
+        items.find((i) => i.lotteryCondition === 'none' && i.status === 'Y') ??
+        items.find((i) => i.status === 'Y') ??
+        items[0];
+
+      // 2) update 成本次要发的活动
+      const body =
+        action === 'welfare_lottery'
+          ? {
+              id: reusable.id,
+              activityName: pick('activityName', '下单抽好礼'),
+              lotteryCondition: 'comment',
+              comment: pick('comment', '想要'),
+              activityDuration: pickNum('activityDuration', 3),
+              amount: pickNum('amount', 2),
+              prizeName: pick('prizeName', '免单名额'),
+              acceptType: 'link',
+              prizeUrl: pick('prizeUrl', 'https://www.polyv.net'),
+            }
+          : {
+              id: reusable.id,
+              activityName: pick('activityName', 'AI 福袋抽奖'),
+              lotteryCondition: 'none',
+              amount: pickNum('amount', 3),
+              receiveEnabled: 'N',
+              prizeName: pick('prizeName', '直播间专属好礼'),
+              lotteryRange: 'all',
+            };
+
+      const updateQuery = signParams({ channelId }) as Record<string, string>;
+      const updateUrl = `${config.polyv.apiBase}/live/v4/channel/lottery-activity/update?${new URLSearchParams(
+        Object.entries(updateQuery).map(([k, v]) => [k, String(v)]),
+      ).toString()}`;
+      const res = await fetch(updateUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(config.polyv.timeoutMs),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        code?: number;
+        status?: string;
+        error?: { code?: number; desc?: string };
+      };
+      const ok = res.ok && (json.code === 200 || json.status === 'success');
+      const message = ok
+        ? `新建已达上限（40028），已复用活动 #${reusable.id}「${reusable.activityName ?? ''}」重新发起`
+        : json.error?.desc || `复用活动失败（HTTP ${res.status}）`;
+
+      if (ok) console.log(`[polyv] ✓ 复用抽奖活动 #${reusable.id}（${action}）`);
+      else console.error(`[polyv] ✗ 复用抽奖活动 #${reusable.id} 失败：${message}`);
+
+      return {
+        ok,
+        mock: false,
+        code: json.error?.code ?? json.code ?? res.status,
+        message,
+        endpoint: 'POST /live/v4/channel/lottery-activity/update',
+        latencyMs: Date.now() - startedAt,
+        data: { reusedFrom: reusable.id, originalLimit: 40028 },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        mock: false,
+        code: -1,
+        message: `复用抽奖活动异常：${(err as Error).message}`,
+        endpoint: 'POST /live/v4/channel/lottery-activity/update',
+        latencyMs: Date.now() - startedAt,
+      };
     }
   }
 
