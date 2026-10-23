@@ -157,7 +157,20 @@ class RealMetricsPoller {
         Number(viewers?.find((v) => String(v.channelId) === String(channelId))?.count ?? 0),
       );
 
-      // ② 当前场次汇总：优先「进行中」（endTime 为空/0），否则退到「最近一场」
+      // ② 累计观看兜底（独立于场次查询）
+      //    本场数据要下播后才入库，直播中查不到；场次判定失败时同样没有数据。
+      //    频道维度的 pageView 真实且实时（实测：新开一个观看页立刻 24→25），
+      //    统一在这里刷新缓存，后面无论走哪个分支都能用上。
+      //    口径注意：pageView 是频道历史累计，跨场次累加，不是单场数据。
+      if (Date.now() - this.pageViewAt > 30_000) {
+        const basic = await signedGet<{ pageView?: number }>('/live/v3/channel/basic/get', {
+          channelId,
+        });
+        this.pageViewAt = Date.now();
+        if (typeof basic?.pageView === 'number') this.pageView = basic.pageView;
+      }
+
+      // ③ 当前场次汇总：优先「进行中」（endTime 为空/0），否则退到「最近一场」
       const summary = await signedGet<{ contents?: SessionSummaryItem[] }>(
         '/live/v4/statistics/session-stats/summary/list',
         { channelId, pageSize: 5 },
@@ -182,12 +195,12 @@ class RealMetricsPoller {
       if (cur) this.sessionId = cur.sessionId;
 
       if (!cur) {
-        // 真·没有可认的场次（未开播或下播很久了）：累计类指标归零，
-        // 但实时在线人数照实保留 —— 它是独立口径，不该被场次缺失连坐。
+        // 真·没有可认的场次（本场未入库 / 未开播 / 下播很久）：商品类指标归零，
+        // 但在线人数、累计观看照实保留 —— 它们有独立口径，不该被场次缺失连坐。
         store.patchMetrics(
           {
             online: onlineNow,
-            totalViewers: 0,
+            totalViewers: this.pageView,
             productClicks: 0,
             orders: 0,
             gmv: 0,
@@ -209,19 +222,6 @@ class RealMetricsPoller {
 
       const uniqueViewer = cur.uniqueViewer ?? 0;
       const viewerCount = cur.viewerCount ?? 0;
-
-      // ④ 累计观看兜底：本场数据要下播后才入库，直播中 uniqueViewer 恒为 0。
-      //    此时退到频道维度的 pageView —— 它是真实且实时更新的
-      //    （实测：新开一个观看页，pageView 立刻从 24 涨到 25），
-      //    总比看板「明明有人在看，累计观看却显示 0」强。
-      //    口径注意：pageView 是频道历史累计，跨场次累加，不是单场数据。
-      if (Math.round(uniqueViewer || viewerCount) === 0 && Date.now() - this.pageViewAt > 30_000) {
-        const basic = await signedGet<{ pageView?: number }>('/live/v3/channel/basic/get', {
-          channelId,
-        });
-        this.pageViewAt = Date.now();
-        if (typeof basic?.pageView === 'number') this.pageView = basic.pageView;
-      }
 
       const clickNum = product?.productClickNum ?? 0;
       const clickViewers = product?.productClickViewers ?? 0;
