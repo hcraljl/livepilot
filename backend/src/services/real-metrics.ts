@@ -21,6 +21,12 @@
  *   - 只在真实模式（isReal）且频道确实 live 时工作；模拟模式下完全不介入
  *   - 任何一次失败都不抛、不影响主流程，只在日志里留下痕迹
  *   - 场次已结束（endTime 有值）的数据**不采用**，避免把上一场的旧数据当成当前场
+ *
+ * 商品类指标的口径结论（2026-10-24 直播中实测）：
+ *   - 场次口径（带 sessionId）直播期间**恒 0**，官方要下播后才写库 —— 直播中拿不到本场点击；
+ *   - 频道累计口径（不带 sessionId）是**实时的**，观众点完商品卡累计值随即 +1。
+ *   所以开播时记一次累计值做基线，之后「累计 - 基线」= 本场实时点击/下单/GMV，
+ *   不再依赖场次口径，直播中也能让看板的商品点击动起来。
  */
 import { config } from '../config.ts';
 import { store } from '../store/state.ts';
@@ -114,6 +120,14 @@ class RealMetricsPoller {
   /** 频道累计观看（pageView）缓存：场次统计滞后时的兜底口径，30s 刷新一次 */
   private pageView = 0;
   private pageViewAt = 0;
+  /**
+   * 商品统计基线与差分结果（频道累计口径是实时的，见文件头口径结论）。
+   * productBase = 开播那一刻的频道累计（此前全部划归历史，null = 还没取到基线）；
+   * productNow = 「累计 - 基线」的差分，即本场实时的点击/下单/GMV。
+   */
+  private productBase: { clicks: number; clickViewers: number; orders: number; gmv: number } | null = null;
+  private productNow = { clicks: 0, clickViewers: 0, orders: 0, gmv: 0 };
+  private productAt = 0;
 
   get running(): boolean {
     return this.timer !== null;
@@ -124,6 +138,10 @@ class RealMetricsPoller {
     if (this.timer) return;
     this.sessionId = null;
     this.liveStartedAt = liveStartedAt;
+    // 商品基线清空：第一次 tick 取到的累计值即为本场基线
+    this.productBase = null;
+    this.productNow = { clicks: 0, clickViewers: 0, orders: 0, gmv: 0 };
+    this.productAt = 0;
     void this.tick();
     this.timer = setInterval(() => void this.tick(), POLL_MS);
     log('✅ 已切换到保利威真实数据（每 5s 轮询官方统计接口）');
@@ -136,7 +154,44 @@ class RealMetricsPoller {
     this.timer = null;
     this.sessionId = null;
     this.liveStartedAt = 0;
+    this.productBase = null;
+    this.productNow = { clicks: 0, clickViewers: 0, orders: 0, gmv: 0 };
+    this.productAt = 0;
     log('⏹ 已停止真实数据轮询');
+  }
+
+  /**
+   * 商品统计（频道累计口径，10s 一次）。
+   *
+   * 为什么不带 sessionId：场次口径直播期间恒 0（下播才写库），
+   * 而频道累计口径实测是实时的 —— 观众点商品卡，累计值随即 +1。
+   * 首次成功取数记为基线（开播前的历史累计全部扣除），之后取差分。
+   * 取数失败保留上次差分，绝不把看板闪回 0。
+   */
+  private async pollProduct(channelId: string): Promise<void> {
+    if (Date.now() - this.productAt < 10_000) return;
+    const cum = await signedGet<ProductStatsSummary>('/live/v4/channel/product/stats/summary', {
+      channelId,
+    });
+    if (!cum) return;
+    this.productAt = Date.now();
+    const now = {
+      clicks: cum.productClickNum ?? 0,
+      clickViewers: cum.productClickViewers ?? 0,
+      orders: cum.saleQuantity ?? 0,
+      gmv: Number(cum.totalPayAmount ?? 0),
+    };
+    if (!this.productBase) {
+      this.productBase = now;
+      log(`商品统计基线：频道累计点击 ${now.clicks} · 下单 ${now.orders} · GMV ${now.gmv}（此前划归历史）`);
+      return;
+    }
+    this.productNow = {
+      clicks: Math.max(0, now.clicks - this.productBase.clicks),
+      clickViewers: Math.max(0, now.clickViewers - this.productBase.clickViewers),
+      orders: Math.max(0, now.orders - this.productBase.orders),
+      gmv: Math.max(0, now.gmv - this.productBase.gmv),
+    };
   }
 
   private async tick(): Promise<void> {
@@ -170,6 +225,9 @@ class RealMetricsPoller {
         if (typeof basic?.pageView === 'number') this.pageView = basic.pageView;
       }
 
+      // ②½ 商品点击/下单/GMV：频道累计差分（实时口径），与场次是否入库完全解耦
+      await this.pollProduct(channelId);
+
       // ③ 当前场次汇总：优先「进行中」（endTime 为空/0），否则退到「最近一场」
       const summary = await signedGet<{ contents?: SessionSummaryItem[] }>(
         '/live/v4/statistics/session-stats/summary/list',
@@ -195,15 +253,16 @@ class RealMetricsPoller {
       if (cur) this.sessionId = cur.sessionId;
 
       if (!cur) {
-        // 真·没有可认的场次（本场未入库 / 未开播 / 下播很久）：商品类指标归零，
-        // 但在线人数、累计观看照实保留 —— 它们有独立口径，不该被场次缺失连坐。
+        // 真·没有可认的场次（本场未入库 / 未开播 / 下播很久）：
+        // 在线人数、累计观看照实保留（独立口径）；商品类指标用频道累计差分 ——
+        // 直播中本来就该走这里（当前场没入库），不能再把点击硬清零。
         store.patchMetrics(
           {
             online: onlineNow,
             totalViewers: this.pageView,
-            productClicks: 0,
-            orders: 0,
-            gmv: 0,
+            productClicks: this.productNow.clicks,
+            orders: this.productNow.orders,
+            gmv: this.productNow.gmv,
             danmakuRate: 0,
           },
           { allowDecrease: true },
@@ -212,21 +271,16 @@ class RealMetricsPoller {
         return;
       }
 
-      // ③ 商品统计（带上场次 ID，拿到的是本场数据而不是频道历史累计）
-      const productParams: Record<string, string | number> = { channelId };
-      if (this.sessionId) productParams.sessionId = this.sessionId;
-      const product = await signedGet<ProductStatsSummary>(
-        '/live/v4/channel/product/stats/summary',
-        productParams,
-      );
-
+      // ③ 商品类指标：统一用频道累计差分（见 pollProduct）。
+      //    不再按场次查 —— 场次口径直播期间恒 0，且滞后兜底认到的可能是上一场，
+      //    会把上一场的数据当成当前场；差分以开播时刻为界，口径永远正确。
       const uniqueViewer = cur.uniqueViewer ?? 0;
       const viewerCount = cur.viewerCount ?? 0;
 
-      const clickNum = product?.productClickNum ?? 0;
-      const clickViewers = product?.productClickViewers ?? 0;
-      const orders = product?.saleQuantity ?? 0;
-      const gmv = Number(product?.totalPayAmount ?? 0);
+      const clickNum = this.productNow.clicks;
+      const clickViewers = this.productNow.clickViewers;
+      const orders = this.productNow.orders;
+      const gmv = this.productNow.gmv;
 
       // 开播时长：优先用「频道转 live」的时刻（由开播监听记录），
       // 场次 startTime 在统计滞后时会偏，且已结束场次会算成上一场的固定时长。
