@@ -14,6 +14,7 @@ import type {
   LiveEventType,
   LiveState,
   Metrics,
+  MetricsOrigin,
   Mode,
   ProductRank,
   StrategyConfig,
@@ -75,8 +76,26 @@ export class LiveStore {
       strategy: { ...config.defaultStrategy },
       scenario: null,
       source: 'simulator',
+      // 初始态：既没开播也没跑模拟 —— 看板就是空的
+      metricsOrigin: 'none',
       updatedAt: Date.now(),
     };
+  }
+
+  /** 标记看板数据来源（none / simulated / real） @since v0.10.0 */
+  setMetricsOrigin(origin: MetricsOrigin): void {
+    if (this.state.metricsOrigin === origin) return;
+    this.state.metricsOrigin = origin;
+    this.logEvent(
+      'system',
+      '看板数据源切换',
+      origin === 'real'
+        ? '看板切到保利威真实数据（官方统计接口）'
+        : origin === 'simulated'
+          ? '看板切到模拟数据（模拟器供数）'
+          : '看板清空（未开播、未跑模拟）',
+    );
+    this.notify();
   }
 
   /** 只读视图（不要在外部改写，写操作一律走下面的方法） */
@@ -139,6 +158,8 @@ export class LiveStore {
       strategy: prevStrategy,
       metrics: emptyMetrics(totalMin),
       channelId: this.effectiveChannelId(),
+      // 模拟器一旦跑起来，看板数据就是「模拟」；真实开播后会由 real-metrics 改成 real
+      metricsOrigin: 'simulated',
     };
     this.logEvent('session', '直播开始（模拟）', `计划时长 ${totalMin} 分钟 · 会话 ${sid}`);
     this.notify();
@@ -219,8 +240,32 @@ export class LiveStore {
 
   // ---------- 指标 ----------
 
-  patchMetrics(patch: Partial<Metrics>): Metrics {
+  /**
+   * 写指标。默认带「单调递增护栏」（防止模拟器抖回去）。
+   *
+   * allowDecrease = true 用于**切换数据源**的场景：模拟跑出的几十万 → 真实的真实值，
+   * 若沿用护栏会把旧数据锁死，看板永远显示不下来的假数。
+   * @since v0.10.0
+   */
+  patchMetrics(
+    patch: Partial<Metrics>,
+    opts: { allowDecrease?: boolean } = {},
+  ): Metrics {
+    const allowDecrease = opts.allowDecrease === true;
     const next: Metrics = { ...this.state.metrics, ...patch };
+    if (allowDecrease) {
+      // 只保留非负与区间约束，不做单调护栏
+      next.online = Math.max(0, Math.round(next.online));
+      next.totalViewers = Math.max(0, Math.round(next.totalViewers));
+      next.productClicks = Math.max(0, Math.round(next.productClicks));
+      next.orders = Math.max(0, Math.round(next.orders));
+      next.gmv = Math.max(0, next.gmv);
+      next.danmakuRate = Math.min(1, Math.max(0, next.danmakuRate));
+      next.elapsedMin = Number(next.elapsedMin.toFixed(3));
+      this.state.metrics = next;
+      this.recomputeFunnel();
+      return next;
+    }
     // 单调递增类指标做护栏，防止模拟器抖回去
     next.totalViewers = Math.max(this.state.metrics.totalViewers, next.totalViewers);
     // 数据完整性：累计观看人次不可能小于当前在线人数（开场冲人时最容易违反，前端会显示成"观看<在线"）
@@ -368,6 +413,7 @@ export class LiveStore {
       channelId: s.channelId,
       mode: s.mode,
       source: s.source,
+      metricsOrigin: s.metricsOrigin,
       startedAt: s.startedAt,
       endedAt: s.endedAt,
       durationMin: Number(s.metrics.elapsedMin.toFixed(2)),

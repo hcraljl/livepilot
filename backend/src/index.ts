@@ -189,6 +189,8 @@ const server = app.listen(config.port, () => {
   console.log(`  Webhook   ${base}/polyv/webhook`);
   console.log('==========================================\n');
   void mountEngine();
+  // 真实模式下持续监听频道是否在播：一转 live，看板数据就从模拟切到保利威真实统计
+  broadcast.startLiveWatch();
   void broadcast
     .ensureFfmpeg()
     .then((ready) =>

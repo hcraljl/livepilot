@@ -4,7 +4,7 @@
  * 契约：Metrics + TimelinePoint（shared/types.ts v1.1）
  * 负责人：A · @since v0.2.0（A-05）
  */
-import type { LiveState, Metrics, TimelinePoint } from '@livepilot/shared';
+import type { LiveState, Metrics, MetricsOrigin, TimelinePoint } from '@livepilot/shared';
 import { formatGMV, formatInt, formatPct } from '../lib/format';
 
 interface CardDef {
@@ -61,18 +61,22 @@ function trendDelta(card: CardDef, state: LiveState): { pct: number } | null {
 }
 
 function MetricCard({ card, state }: { card: CardDef; state: LiveState | null }) {
-  const current = state ? card.value(state.metrics) : null;
+  // 未开播也没跑模拟时，看板就是空的：显示「—」而不是 0，避免把「没有数据」误读成「数据为 0」
+  const isEmpty = !state || state.metricsOrigin === 'none';
+  const current = state && !isEmpty ? card.value(state.metrics) : null;
   const series =
-    state && card.series
+    state && card.series && !isEmpty
       ? state.timeline.slice(-60).map(card.series as (p: TimelinePoint) => number)
       : [];
-  const trend = state ? trendDelta(card, state) : null;
+  const trend = state && !isEmpty ? trendDelta(card, state) : null;
 
   return (
     <div className="rounded-lg bg-white p-4 shadow-[0_0_0_0.5px_rgba(0,0,0,0.06)]">
       <p className="text-xs text-gray-500">{card.label}</p>
       <div className="mt-1 flex items-baseline gap-2">
-        <b className="text-2xl font-medium text-gray-900">{current === null ? '—' : card.format(current)}</b>
+        <b className={`text-2xl font-medium ${current === null ? 'text-gray-300' : 'text-gray-900'}`}>
+          {current === null ? '—' : card.format(current)}
+        </b>
         {trend && (
           /* whitespace-nowrap：1280 宽下「▲ 89%」曾被挤成两行（v0.4.0） */
           <span
@@ -87,8 +91,26 @@ function MetricCard({ card, state }: { card: CardDef; state: LiveState | null })
       <div className="mt-2">
         <Sparkline points={series} />
       </div>
-      <p className="mt-1 text-[11px] text-gray-400">较 1 分钟前</p>
+      <p className="mt-1 text-[11px] text-gray-400">{isEmpty ? '开播或跑模拟后有数据' : '较 1 分钟前'}</p>
     </div>
+  );
+}
+
+/**
+ * 数据来源徽章 —— 让「这数是模拟的还是保利威真实的」一眼可见 @since v0.10.0
+ * 演示时最怕把模拟数据讲成真实数据，这个徽章就是防误读的。
+ */
+function OriginBadge({ origin }: { origin: MetricsOrigin }) {
+  const map: Record<MetricsOrigin, { text: string; cls: string }> = {
+    none: { text: '未开播 · 无数据', cls: 'bg-gray-100 text-gray-500' },
+    simulated: { text: '模拟数据', cls: 'bg-blue-50 text-blue-600' },
+    real: { text: '保利威真实数据', cls: 'bg-success-50 text-success-700' },
+  };
+  const { text, cls } = map[origin];
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`} title="看板当前数据的来源">
+      {text}
+    </span>
   );
 }
 
@@ -97,11 +119,18 @@ interface MetricCardsProps {
 }
 
 export function MetricCards({ state }: MetricCardsProps) {
+  const origin = state?.metricsOrigin ?? 'none';
   return (
-    <section aria-label="核心指标" className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-      {CARDS.map((card) => (
-        <MetricCard key={card.key} card={card} state={state} />
-      ))}
+    <section aria-label="核心指标" className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <h2 className="text-xs font-medium text-gray-500">核心指标</h2>
+        <OriginBadge origin={origin} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+        {CARDS.map((card) => (
+          <MetricCard key={card.key} card={card} state={state} />
+        ))}
+      </div>
     </section>
   );
 }

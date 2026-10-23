@@ -13,6 +13,14 @@ export type Mode = 'suggest' | 'semiauto' | 'auto';
 export type AiLevel = 'off' | 'hybrid' | 'full';
 
 /** 直播核心指标（看板 6 张卡 + 上下文） */
+/**
+ * 看板数据的来源 @since v0.10.0
+ * none      未开播、也没有跑模拟 —— 看板是空的
+ * simulated 点了「跑模拟数据」，模拟器供数
+ * real      频道真的在播，数据来自保利威官方统计接口
+ */
+export type MetricsOrigin = 'none' | 'simulated' | 'real';
+
 export interface Metrics {
   /** 当前在线人数 */
   online: number;
@@ -209,6 +217,8 @@ export interface LiveState {
   scenario: string | null;
   /** 数据源：simulator | polyv */
   source: 'simulator' | 'polyv';
+  /** 看板数据的来源：none=空态 / simulated=模拟器 / real=保利威官方统计 @since v0.10.0 */
+  metricsOrigin: MetricsOrigin;
   updatedAt: number;
 }
 
@@ -250,6 +260,8 @@ export interface SessionExport {
   channelId: string;
   mode: Mode;
   source: 'simulator' | 'polyv';
+  /** 看板数据的来源：none=未开播无数据 / simulated=模拟器 / real=保利威官方统计 @since v0.10.0 */
+  metricsOrigin: MetricsOrigin;
   startedAt: number | null;
   endedAt: number | null;
   durationMin: number;

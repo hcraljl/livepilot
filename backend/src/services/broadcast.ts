@@ -20,10 +20,16 @@ import type { BroadcastPhase, BroadcastSource, BroadcastStatus } from '../../../
 import { config } from '../config.ts';
 import { signParams } from '../polyv/sign.ts';
 import { polyvClient } from '../polyv/client.ts';
+import { simulator } from '../simulator/simulator.ts';
+import { store } from '../store/state.ts';
+import { realMetrics } from './real-metrics.ts';
 
 export type { BroadcastPhase, BroadcastSource, BroadcastStatus };
 
 const MAX_LOG = 4000;
+
+/** 频道 live 监听间隔（真实模式下） @since v0.10.0 */
+const LIVE_WATCH_MS = 10_000;
 
 const FONT_REGULAR = 'C\\:/Windows/Fonts/msyh.ttc';
 const FONT_BOLD = 'C\\:/Windows/Fonts/msyhbd.ttc';
@@ -61,6 +67,8 @@ class BroadcastService {
   private logTail = '';
   private channelLive: boolean | null = null;
   private channelLiveAt = 0;
+  /** 频道 live 监听定时器（真实模式） @since v0.10.0 */
+  private liveWatch: ReturnType<typeof setInterval> | null = null;
   private ffmpegReady = false;
   private ffmpegChecked = false;
 
@@ -156,6 +164,37 @@ class BroadcastService {
       // 查询失败不改写上一次已知状态，避免网络抖动时前端疯狂闪烁
       return this.channelLive;
     }
+  }
+
+  /**
+   * 频道 live 监听 —— 看板数据源的总闸门 @since v0.10.0
+   *
+   * 频道真的在播（无论是客户端推流还是本服务推流）→ 看板改吃官方真实统计；
+   * 下播 → 收掉真实轮询，看板回到空态。
+   * 客户端在播时模拟器必须让位，否则两套数据同时写同一个 store，看板会来回跳。
+   */
+  startLiveWatch(): void {
+    if (this.liveWatch) return;
+    if (!polyvClient.isReal) {
+      console.log('[metrics] 模拟模式：不启动真实数据监听（看板由模拟器供数）');
+      return;
+    }
+    const check = async (): Promise<void> => {
+      const live = await this.refreshChannelLive(true);
+      if (live) {
+        if (simulator.running) {
+          simulator.stop();
+          console.log('[metrics] 频道已真实开播 —— 模拟器让位，看板改吃真实数据');
+        }
+        if (!realMetrics.running) realMetrics.start();
+      } else if (realMetrics.running) {
+        realMetrics.stop();
+        store.setMetricsOrigin('none');
+      }
+    };
+    void check();
+    this.liveWatch = setInterval(() => void check(), LIVE_WATCH_MS);
+    console.log('[metrics] 频道 live 监听已启动（真实模式，每 10s 回读一次）');
   }
 
   private ffmpegArgs(pushUrl: string, file: string): string[] {
