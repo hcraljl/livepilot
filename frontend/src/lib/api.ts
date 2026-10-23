@@ -21,6 +21,7 @@ import type {
   ActionReq,
   ActionType,
   BroadcastStatus,
+  ClientLaunchInfo,
   CopilotCandidatesResp,
   Decision,
   LiveEvent,
@@ -288,3 +289,11 @@ export const startBroadcast = (req: StartBroadcastReq = {}): Promise<BroadcastSt
 
 /** POST /api/broadcast/stop —— 停止推流（频道回落为未开播） @since v0.8.0 */
 export const stopBroadcast = (): Promise<BroadcastStatus> => post<BroadcastStatus>('/api/broadcast/stop');
+
+/**
+ * GET /api/broadcast/client —— 保利威开播客户端的唤起信息 @since v0.9.0
+ *
+ * 返回 { scheme, installed, hint }。scheme 由后端配置驱动（POLYV_CLIENT_SCHEME），
+ * 前端拿到后直接跳转即可唤起本机客户端（直播伴侣），客户端可直接用摄像头/麦克风开播。
+ */
+export const fetchClientLaunch = (): Promise<ClientLaunchInfo> => get<ClientLaunchInfo>('/api/broadcast/client');

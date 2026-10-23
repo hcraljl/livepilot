@@ -315,6 +315,9 @@ class BroadcastService {
       error: this.phase === 'error' ? this.lastError : null,
       ffmpegReady: this.ffmpegReady,
       profile: `${config.broadcast.width}x${config.broadcast.height} @${config.broadcast.fps}fps ${config.broadcast.bitrate}`,
+      // 频道在播但本服务的 ffmpeg 没在推 → 是别的推流端（最典型就是保利威客户端）
+      externalLive: this.channelLive === true && !active,
+      clientScheme: config.clientScheme,
     };
   }
 }

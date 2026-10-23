@@ -433,6 +433,13 @@ export interface BroadcastStatus {
   ffmpegReady: boolean;
   /** 画面规格：1280x720 @25fps 1200k */
   profile: string;
+  /**
+   * 频道在直播，但不是本服务的 ffmpeg 推的 —— 典型场景：用保利威客户端开播。
+   * @since v0.9.0
+   */
+  externalLive: boolean;
+  /** 唤起保利威开播客户端的 URL Scheme（后端配置驱动，默认 polyvlive://start?pdn=api.polyv.net） @since v0.9.0 */
+  clientScheme: string;
 }
 
 /** POST /api/broadcast/start @since v0.8.0 */
@@ -441,4 +448,20 @@ export interface StartBroadcastReq {
   file?: string;
   /** 是否同时拉起虚拟观众数据流，默认 true */
   withSimulator?: boolean;
+}
+
+/**
+ * 保利威开播客户端的 URL Scheme @since v0.9.0
+ *
+ * 为什么用客户端而不是后端推流：保利威自己的开播工具（直播伴侣）支持摄像头、麦克风、
+ * 屏幕共享、多场景切换，比后端合成的画面真实得多，也更贴合保利威生态。
+ * 前端点击按钮后把浏览器导航到这个 scheme，操作系统会唤起本机已安装的客户端。
+ */
+export interface ClientLaunchInfo {
+  /** 完整 scheme，前端直接 location.href = scheme */
+  scheme: string;
+  /** 客户端是否已在本机注册（无法可靠探测，恒为 null，前端用失焦事件判断） */
+  installed: boolean | null;
+  /** 提示文案：唤起后要引导用户在客户端点「开始直播」 */
+  hint: string;
 }

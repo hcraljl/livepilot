@@ -18,6 +18,7 @@ import { broadcast } from '../services/broadcast.ts';
 import { simulator } from '../simulator/simulator.ts';
 import { store } from '../store/state.ts';
 import { polyvClient } from '../polyv/client.ts';
+import { config } from '../config.ts';
 
 export const broadcastRouter = Router();
 
@@ -26,9 +27,29 @@ const fail = (error: string, code = 400) => ({ ok: false, error, code });
 
 /** GET /api/broadcast —— 当前推流状态（含官方回读的 channelLive） */
 broadcastRouter.get('/broadcast', async (_req, res) => {
-  const st = broadcast.status();
-  if (st.active) await broadcast.refreshChannelLive();
+  // v0.9.0：不再只在「本服务 ffmpeg 在推」时才回读。
+  // 用保利威客户端开播时 ffmpeg 根本没跑，但频道确实在播 —— 看板必须能看见这个事实，
+  // 否则会出现「客户端已经开播了，驾驶舱还说没开播」的割裂。
+  // refreshChannelLive 内部有 5 秒缓存，轮询开销可控。
+  if (polyvClient.credentialsReady) await broadcast.refreshChannelLive();
   res.json(ok(broadcast.status()));
+});
+
+/**
+ * GET /api/broadcast/client —— 保利威开播客户端的唤起信息 @since v0.9.0
+ *
+ * 前端拿到 scheme 后 location.href 跳转，由操作系统唤起本机客户端（直播伴侣）。
+ * 客户端里能直接用摄像头 / 麦克风 / 屏幕共享开播，比后端合成画面真实得多。
+ */
+broadcastRouter.get('/broadcast/client', (_req, res) => {
+  res.json(
+    ok({
+      scheme: config.clientScheme,
+      // 浏览器无法探测自定义协议是否已注册，只能靠「页面失焦」间接判断，故返回 null
+      installed: null,
+      hint: '已唤起保利威客户端，请在客户端里选择摄像头/麦克风并点击「开始直播」',
+    }),
+  );
 });
 
 /** POST /api/broadcast/start —— 真实开播 */

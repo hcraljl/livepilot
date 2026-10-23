@@ -57,6 +57,15 @@ export const config = {
   },
 
   /**
+   * 保利威开播客户端（直播伴侣）的 URL Scheme @since v0.9.0
+   *
+   * 点击前端「客户端开播」会把这个地址交给浏览器，由操作系统唤起本机客户端。
+   * 客户端能直接调摄像头 / 麦克风 / 屏幕共享 —— 比后端合成画面真实，也更贴合保利威生态。
+   * 换成私有化部署时改这里即可（pdn 指向自己的 API 域名）。
+   */
+  clientScheme: str('POLYV_CLIENT_SCHEME', 'polyvlive://start?pdn=api.polyv.net'),
+
+  /**
    * 真实开播：本机 ffmpeg 推流到保利威频道。
    *
    * 保利威没有「服务端一键开播」接口 —— 开播的物理事实是「有流推进频道」。

@@ -18,7 +18,8 @@
 | POST | `/api/sim/stop` | 停止模拟器 | A |
 | POST | `/api/sim/scenario` | 现场手动加戏 | A / 演示控制台 |
 | GET | `/api/broadcast` | 真实推流状态（`phase` / 官方回读 `channelLive`） | A 开播按钮 |
-| POST | `/api/broadcast/start` | **真实开播**：取官方推流地址 + 本机 ffmpeg 推流 | A 开播按钮 |
+| GET | `/api/broadcast/client` | 保利威客户端唤起信息（scheme / hint） | A 客户端开播按钮 |
+| POST | `/api/broadcast/start` | **真实开播（备用）**：取官方推流地址 + 本机 ffmpeg 推流 | A 开播按钮 |
 | POST | `/api/broadcast/stop` | 停止推流（频道回落未开播） | A 开播按钮 |
 | POST | `/api/mode` | 切换建议 / 半自动 / 全自动 | A 的策略面板 |
 | POST | `/api/strategy` | 更新策略阈值 | A 的策略面板 |
@@ -405,13 +406,77 @@ interface LiveState {
 
 ---
 
-## 七、真实开播（把画面真的推到保利威频道）
+## 七、真实开播（两条路径：客户端 / 本机推流）
 
 > 维护：**成员 B**。目的：让「开始直播」不是一个假按钮——点下去，频道真的在播，观众端真的能看见。
 
-### 为什么是这个方案
+开播有两条路径，**首选客户端**（v0.9.0）：
 
-保利威**没有**「服务端一键开播」接口。开播的物理事实是「有流推进频道」，所以真实开播拆成三步，每步都用官方能力：
+| 路径 | 谁在推流 | 画面 | 适用 |
+| --- | --- | --- | --- |
+| **① 保利威客户端开播**（推荐） | 保利威直播伴侣（本机客户端） | 摄像头 / 麦克风 / 屏幕共享，真实场景 | 正式演示、真人带货 |
+| ② 本机 ffmpeg 推流（备用） | 本服务后端 | 后端合成的品牌演示画面 | 无人值守、彩排、只想要「频道有画面」 |
+
+两条路径占同一个频道，**不能同时推流**（客户端在播时前端会禁用推流按钮）。
+
+---
+
+### 7.1 客户端开播（推荐路径）
+
+保利威自己的开播工具支持摄像头、麦克风、屏幕共享、多场景切换、贴片等能力，比后端能合成的画面丰富得多，也更贴合保利威生态。所以前端「客户端开播」按钮并不调用任何开播 API，而是**唤起本机客户端**：
+
+```
+点击按钮 → location.href = polyvlive://start?pdn=api.polyv.net
+        → 操作系统按协议注册表唤起 polyvlive64.exe（保利威直播伴侣）
+        → 主播在客户端里选摄像头/麦克风，点「开始直播」
+        → 客户端把流推到频道 → 官方 get-streams 回读 live=true
+        → 驾驶舱自动变为「直播中 · 客户端推流」，并自动弹出观众端
+```
+
+本机验证过协议已注册（Windows 注册表 `HKEY_CLASSES_ROOT\polyvlive` →
+`C://hcr//PolyvLive//PolyvLive64//bin//64bit//polyvlive64.exe`）。
+
+#### GET /api/broadcast/client
+
+```json
+{ "ok": true, "data": {
+  "scheme": "polyvlive://start?pdn=api.polyv.net",
+  "installed": null,
+  "hint": "已唤起保利威客户端，请在客户端里选择摄像头/麦克风并点击「开始直播」"
+} }
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `scheme` | 完整唤起地址，由后端 `POLYV_CLIENT_SCHEME` 配置驱动，前端直接跳转 |
+| `installed` | **恒为 `null`**：浏览器没有任何 API 能查询自定义协议是否已注册，前端用「页面失焦」间接判断 |
+| `hint` | 唤起后的引导文案，前端直接展示 |
+
+#### 前端唤起实现（`components/ControlBar.tsx`）
+
+- 用 `<a href={scheme}>` 的 `click()` 触发，而不是 `window.open` —— 自定义协议必须在**用户手势**的调用栈里触发；
+- 唤起后观察 2.5 秒内页面是否失焦（`blur` / `visibilitychange`），失焦说明客户端窗口抢了焦点；
+- **判定失败不代表没装**（部分系统不触发 blur），所以无论是否失焦都继续轮询 `/api/broadcast`，真的开播了照样自动弹观众端，只是提示文案不同；
+- 点击时若虚拟观众数据没在跑，会顺手 `POST /api/sim/start`（客户端只管推画面，驾驶舱指标还得有数据）；
+- 唤起后最多等 3 分钟，超时停止追问并提示去客户端确认。
+
+#### `externalLive`：让「客户端开播」在驾驶舱里可见
+
+客户端推流时，本服务的 ffmpeg 并没有跑（`active=false`），但频道确实在播（`channelLive=true`）。这两个字段的组合就是「外部推流端在播」：
+
+```json
+{ "active": false, "channelLive": true, "externalLive": true }
+```
+
+`externalLive = channelLive && !active`，前端据此显示蓝色的「直播中 · 客户端推流」徽章，并把推流按钮禁用。
+
+> 为了让这个状态能被看到，`GET /api/broadcast` 现在**只要真实模式就回读官方 `get-streams`**（原先只在 ffmpeg 在推时才查）。内部 5 秒缓存，轮询开销可控。
+
+---
+
+### 7.2 本机 ffmpeg 推流（备用路径）
+
+> 保利威**没有**「服务端一键开播」接口。开播的物理事实是「有流推进频道」，所以这条路径拆成三步，每步都用官方能力：
 
 | 步骤 | 用什么 |
 | --- | --- |
@@ -442,6 +507,8 @@ interface LiveState {
 | `channelLive` | 官方 `get-streams` 回读结果，`null` = 还没查过 |
 | `ffmpegReady` | 本机 ffmpeg 是否可用；不可用时 `start` 会直接报错而不是假装成功 |
 | `source` | `synthetic`（后端合成演示画面）/ `file`（循环推本地视频） |
+| `externalLive` | 频道在播但不是本服务 ffmpeg 推的（客户端/三方推流），`channelLive && !active` @since v0.9.0 |
+| `clientScheme` | 唤起保利威客户端的 URL Scheme，由 `POLYV_CLIENT_SCHEME` 控制 @since v0.9.0 |
 
 ### POST /api/broadcast/start
 
@@ -469,6 +536,7 @@ interface LiveState {
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
+| `POLYV_CLIENT_SCHEME` | `polyvlive://start?pdn=api.polyv.net` | 客户端唤起地址；私有化部署改这里的 `pdn` 域名 |
 | `POLYV_BROADCAST_ENABLED` | `true` | 关掉则真实开播直接拒绝（彩排怕误触时用） |
 | `POLYV_FFMPEG_PATH` | `ffmpeg` | ffmpeg 不在 PATH 时写绝对路径 |
 | `POLYV_BROADCAST_FILE` | 空 | 指定本地视频则循环推它，等价于每次 start 都带 `file` |
@@ -487,11 +555,12 @@ npm run broadcast:check -w backend -- --live  # 端到端：开播 → 官方 li
 
 ### 与 `/api/sim/start` 的区别（演示时别搞混）
 
-| | `/api/broadcast/start` | `/api/sim/start` |
-| --- | --- | --- |
-| 频道里有没有画面 | **有**，观众端真能看见 | 没有 |
-| 驾驶舱指标会不会动 | 不会（除非同时 `withSimulator`） | 会 |
-| 会不会影响真实直播间 | 会（这就是目的） | 不会 |
+| | 客户端开播（scheme） | `/api/broadcast/start` | `/api/sim/start` |
+| --- | --- | --- | --- |
+| 频道里有没有画面 | **有**，还是真实的摄像头/屏幕 | **有**，但是合成演示画面 | 没有 |
+| 谁在推流 | 保利威客户端 | 本服务 ffmpeg | 没人推流 |
+| 驾驶舱指标会不会动 | 点击时顺手拉起 sim | 不会（除非同时 `withSimulator`） | 会 |
+| 会不会影响真实直播间 | 会（这就是目的） | 会 | 不会 |
 
 ### 已知限制
 
